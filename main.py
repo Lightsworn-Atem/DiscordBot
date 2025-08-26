@@ -247,7 +247,6 @@ def init_database():
             conn.close()
         return False
 
-DATA_FILE = "data.json"
 
 def peut_utiliser_commande_unique(nom: str) -> bool:
     """
@@ -291,11 +290,11 @@ def lock_exclusive(user_id: int, cmd_name: str):
     save_data()
 
 
-# --- FONCTIONS DE SAUVEGARDE ET CHARGEMENT ---
 def save_data():
-    """Sauvegarde tous les données en base"""
+    """Sauvegarde tous les données en base - VERSION CORRIGÉE"""
     conn = get_db_connection()
     if not conn:
+        print("❌ Impossible de se connecter à la DB pour sauvegarder")
         return
         
     try:
@@ -303,99 +302,142 @@ def save_data():
         
         # Sauvegarder les joueurs
         for user_id, data in joueurs.items():
-            cursor.execute("""
-                INSERT INTO joueurs (user_id, or_amount, etoiles, statuts, minerva_shield, negociateur)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT (user_id) DO UPDATE SET
-                    or_amount = EXCLUDED.or_amount,
-                    etoiles = EXCLUDED.etoiles,
-                    statuts = EXCLUDED.statuts,
-                    minerva_shield = EXCLUDED.minerva_shield,
-                    negociateur = EXCLUDED.negociateur
-            """, (
-                user_id, 
-                data.get('or', 30), 
-                data.get('etoiles', 2),
-                json.dumps(data.get('statuts', [])),
-                data.get('minerva_shield', False),
-                data.get('negociateur', False)
-            ))
+            try:
+                cursor.execute("""
+                    INSERT INTO joueurs (user_id, or_amount, etoiles, statuts, minerva_shield, negociateur)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        or_amount = EXCLUDED.or_amount,
+                        etoiles = EXCLUDED.etoiles,
+                        statuts = EXCLUDED.statuts,
+                        minerva_shield = EXCLUDED.minerva_shield,
+                        negociateur = EXCLUDED.negociateur
+                """, (
+                    int(user_id), 
+                    data.get('or', 30), 
+                    data.get('etoiles', 2),
+                    json.dumps(data.get('statuts', [])),
+                    data.get('minerva_shield', False),
+                    data.get('negociateur', False)
+                ))
+            except Exception as e:
+                print(f"Erreur sauvegarde joueur {user_id}: {e}")
+                continue
         
         # Sauvegarder les positions
         for user_id, zone in positions.items():
-            cursor.execute("""
-                INSERT INTO positions (user_id, zone) VALUES (%s, %s)
-                ON CONFLICT (user_id) DO UPDATE SET zone = EXCLUDED.zone
-            """, (user_id, zone))
+            try:
+                cursor.execute("""
+                    INSERT INTO positions (user_id, zone) VALUES (%s, %s)
+                    ON CONFLICT (user_id) DO UPDATE SET zone = EXCLUDED.zone
+                """, (int(user_id), str(zone)))
+            except Exception as e:
+                print(f"Erreur sauvegarde position {user_id}: {e}")
+                continue
         
         # Sauvegarder les éliminés
-        cursor.execute("DELETE FROM elimines")
-        for user_id in elimines:
-            cursor.execute("INSERT INTO elimines (user_id) VALUES (%s)", (user_id,))
+        try:
+            cursor.execute("DELETE FROM elimines")
+            for user_id in elimines:
+                cursor.execute("INSERT INTO elimines (user_id) VALUES (%s)", (int(user_id),))
+        except Exception as e:
+            print(f"Erreur sauvegarde éliminés: {e}")
         
         # Sauvegarder les inventaires
         for user_id, data in inventaires.items():
-            cursor.execute("""
-                INSERT INTO inventaires (user_id, or_amount, cartes)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (user_id) DO UPDATE SET
-                    or_amount = EXCLUDED.or_amount,
-                    cartes = EXCLUDED.cartes
-            """, (user_id, data.get('or', 30), json.dumps(data.get('cartes', []))))
+            try:
+                cursor.execute("""
+                    INSERT INTO inventaires (user_id, or_amount, cartes)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        or_amount = EXCLUDED.or_amount,
+                        cartes = EXCLUDED.cartes
+                """, (int(user_id), data.get('or', 30), json.dumps(data.get('cartes', []))))
+            except Exception as e:
+                print(f"Erreur sauvegarde inventaire {user_id}: {e}")
+                continue
         
         # Sauvegarder les achats uniques
-        cursor.execute("DELETE FROM achats_uniques")
-        for user_id, shops in achats_uniques.items():
-            for shop_name in shops.keys():
-                cursor.execute("""
-                    INSERT INTO achats_uniques (user_id, shop_name) VALUES (%s, %s)
-                """, (user_id, shop_name))
+        try:
+            cursor.execute("DELETE FROM achats_uniques")
+            for user_id, shops in achats_uniques.items():
+                for shop_name in shops.keys():
+                    cursor.execute("""
+                        INSERT INTO achats_uniques (user_id, shop_name) VALUES (%s, %s)
+                    """, (int(user_id), str(shop_name)))
+        except Exception as e:
+            print(f"Erreur sauvegarde achats uniques: {e}")
         
         # Sauvegarder les commandes globales
-        for cmd_name, used in commandes_uniques_globales.get('exclusives_globales', {}).items():
-            cursor.execute("""
-                INSERT INTO commandes_globales (command_name, used)
-                VALUES (%s, %s)
-                ON CONFLICT (command_name) DO UPDATE SET used = EXCLUDED.used
-            """, (cmd_name, used))
+        try:
+            # D'abord, sauvegarder les commandes exclusives globales
+            for cmd_name, used in commandes_uniques_globales.get('exclusives_globales', {}).items():
+                cursor.execute("""
+                    INSERT INTO commandes_globales (command_name, used)
+                    VALUES (%s, %s)
+                    ON CONFLICT (command_name) DO UPDATE SET used = EXCLUDED.used
+                """, (str(cmd_name), bool(used)))
+            
+            # Sauvegarder aussi les commandes anciennes au niveau racine (compatibilité)
+            for cmd_name, used in commandes_uniques_globales.items():
+                if cmd_name not in ['exclusives_globales', 'exclusives_joueurs'] and isinstance(used, bool):
+                    cursor.execute("""
+                        INSERT INTO commandes_globales (command_name, used)
+                        VALUES (%s, %s)
+                        ON CONFLICT (command_name) DO UPDATE SET used = EXCLUDED.used
+                    """, (str(cmd_name), bool(used)))
+        except Exception as e:
+            print(f"Erreur sauvegarde commandes globales: {e}")
         
         # Sauvegarder les derniers déplacements
-        for user_id, needs_duel in derniers_deplacements.items():
-            cursor.execute("""
-                INSERT INTO derniers_deplacements (user_id, needs_duel)
-                VALUES (%s, %s)
-                ON CONFLICT (user_id) DO UPDATE SET needs_duel = EXCLUDED.needs_duel
-            """, (int(user_id), needs_duel))
+        try:
+            for user_id, needs_duel in derniers_deplacements.items():
+                cursor.execute("""
+                    INSERT INTO derniers_deplacements (user_id, needs_duel)
+                    VALUES (%s, %s)
+                    ON CONFLICT (user_id) DO UPDATE SET needs_duel = EXCLUDED.needs_duel
+                """, (int(user_id), bool(needs_duel)))
+        except Exception as e:
+            print(f"Erreur sauvegarde derniers déplacements: {e}")
         
         # Sauvegarder la boutique
-        cursor.execute("""
-            INSERT INTO boutique_data (id, data) VALUES (1, %s)
-            ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data
-        """, (json.dumps(boutique),))
+        try:
+            cursor.execute("""
+                INSERT INTO boutique_data (id, data) VALUES (1, %s)
+                ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data
+            """, (json.dumps(boutique),))
+        except Exception as e:
+            print(f"Erreur sauvegarde boutique: {e}")
         
         # Sauvegarder les bans temporaires
-        cursor.execute("DELETE FROM bans_temp")
-        for joueur, deck in bans_temp.items():
-            cursor.execute("""
-                INSERT INTO bans_temp (joueur, deck) VALUES (%s, %s)
-            """, (joueur, deck))
+        try:
+            cursor.execute("DELETE FROM bans_temp")
+            for joueur, deck in bans_temp.items():
+                cursor.execute("""
+                    INSERT INTO bans_temp (joueur, deck) VALUES (%s, %s)
+                """, (str(joueur), str(deck)))
+        except Exception as e:
+            print(f"Erreur sauvegarde bans temporaires: {e}")
         
         conn.commit()
         cursor.close()
         conn.close()
+        print("✅ Sauvegarde réussie")
         
     except Exception as e:
-        print(f"Erreur sauvegarde: {e}")
+        print(f"Erreur générale sauvegarde: {e}")
         if conn:
+            conn.rollback()
             conn.close()
 
 def load_data():
-    """Charge toutes les données depuis la base"""
+    """Charge toutes les données depuis la base - VERSION CORRIGÉE"""
     global joueurs, positions, elimines, inventaires, achats_uniques
     global commandes_uniques_globales, derniers_deplacements, boutique, bans_temp
     
     conn = get_db_connection()
     if not conn:
+        print("❌ Impossible de se connecter à la DB pour charger")
         return
         
     try:
@@ -403,6 +445,7 @@ def load_data():
         
         # Charger les joueurs
         cursor.execute("SELECT * FROM joueurs")
+        joueurs.clear()
         for row in cursor.fetchall():
             joueurs[row['user_id']] = {
                 'or': row['or_amount'],
@@ -414,15 +457,18 @@ def load_data():
         
         # Charger les positions
         cursor.execute("SELECT * FROM positions")
+        positions.clear()
         for row in cursor.fetchall():
             positions[row['user_id']] = row['zone']
         
         # Charger les éliminés
         cursor.execute("SELECT user_id FROM elimines")
+        elimines.clear()
         elimines.update(row['user_id'] for row in cursor.fetchall())
         
         # Charger les inventaires
         cursor.execute("SELECT * FROM inventaires")
+        inventaires.clear()
         for row in cursor.fetchall():
             inventaires[row['user_id']] = {
                 'or': row['or_amount'],
@@ -431,6 +477,7 @@ def load_data():
         
         # Charger les achats uniques
         cursor.execute("SELECT * FROM achats_uniques")
+        achats_uniques.clear()
         for row in cursor.fetchall():
             if row['user_id'] not in achats_uniques:
                 achats_uniques[row['user_id']] = {}
@@ -447,12 +494,14 @@ def load_data():
         
         # Charger les derniers déplacements
         cursor.execute("SELECT * FROM derniers_deplacements")
+        derniers_deplacements.clear()
         for row in cursor.fetchall():
             derniers_deplacements[str(row['user_id'])] = row['needs_duel']
         
         # Charger la boutique
         cursor.execute("SELECT data FROM boutique_data WHERE id = 1")
         row = cursor.fetchone()
+        boutique.clear()
         if row and row['data']:
             boutique.update(row['data'])
         else:
@@ -460,6 +509,7 @@ def load_data():
         
         # Charger les bans temporaires
         cursor.execute("SELECT * FROM bans_temp")
+        bans_temp.clear()
         for row in cursor.fetchall():
             bans_temp[row['joueur']] = row['deck']
         
@@ -472,14 +522,9 @@ def load_data():
         if conn:
             conn.close()
 
-
-
 # --- UTILITAIRES ---
-
 def est_inscrit(user_id):
     return user_id in joueurs
-
-
 
 
 @bot.command()
@@ -498,15 +543,20 @@ async def help(ctx):
 
 
 
-# --- COMMANDES ---
-
+# --- INITIALISATION DU BOT ---
 @bot.event
 async def on_ready():
-    load_data()
+    # Initialiser la DB
+    if init_database():
+        load_data()
+    
+    # Démarrer les tâches périodiques
     if not cycle_status.is_running():
         cycle_status.start()
-    await bot.change_presence(activity=discord.Game(STATUSES[0]))
+    
+    await bot.change_presence(activity=discord.Game("Bot initialisé"))
     print(f"✅ Connecté en tant que {bot.user}")
+    
 
 # --- INSCRIPTION ---
 @bot.command()
