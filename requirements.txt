@@ -1,0 +1,6 @@
+discord.py
+flask
+requests
+thefuzz
+numpy
+psycopg2-binary

@@ -1,0 +1,1279 @@
+import discord
+from discord.ext import commands
+import json
+import os
+from keep_alive import keep_alive
+from discord.ext import tasks
+import random
+import requests
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from urllib.parse import urlparse
+from keep_alive import keep_alive
+
+
+# --- CONFIG ---
+TOKEN = os.getenv("DISCORD_TOKEN")  # Mets ton token Discord ici
+PREFIX = "!"  # Commandes commencent par !
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+
+# --- INITIALISATION ---
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
+
+# --- STATUTS CYCLIQUES DU BOT ---
+STATUSES = [
+    "Envoyer Mathmech Sigma au cimetière",
+    "Traumatiser FszOpen",
+    "Ne pas se prendre Ash blossom"
+]
+
+@tasks.loop(seconds=3600)  # ajuste l'intervalle si tu veux
+async def cycle_status():
+    if not hasattr(cycle_status, "_idx"):
+        cycle_status._idx = 0
+    game = discord.Game(STATUSES[cycle_status._idx])
+    await bot.change_presence(activity=game)
+    cycle_status._idx = (cycle_status._idx + 1) % len(STATUSES)
+
+print("🚀 main.py a bien été relancé")
+TOURNAMENT_STARTED = False
+
+"""@bot.check
+async def check_tournament(ctx):
+    # Autoriser la commande help ou le créateur
+    if ctx.command.name == 'help' or ctx.author.id == OWNER_ID:
+        return True
+
+    # Vérifier si le tournoi a commencé
+    if not TOURNAMENT_STARTED:
+        await ctx.send("Le tournoi n'a pas encore commencé, le bot ne sera activé qu'à ce moment là.")
+        return False
+
+    return True"""
+
+
+
+# --- DONNÉES ---
+zones = ["Parc", "Docks", "KaibaCorp", "Quartier", "Ruines"]
+
+BOUTIQUE_INITIALE = {
+    "packs": {
+        "Super Polymérisation": {
+            "prix": 150,
+            "cartes": ["Super Polymerisation (x3)", "Mudragon of the Swamp", "Saint Azamina",
+                       "Garura, Wings of Resonant Life", "Earth Golem @Ignister"]
+        },
+        "Light Fiend": {
+            "prix": 150,
+            "cartes": ["Fiendsmith Engraver", "Weiss, Lightsworn Archfiend (x2)", "Evilswarm Exciton Knight",
+                       "Moon of the Closed Heaven", "Fiendsmith Tract"]
+        },
+        "Loi de la Normale": {
+            "prix": 150,
+            "cartes": ["Primite Dragon Ether Beryl (x2)", "Primite Roar (x2)", "Primite Drillbeam",
+                       "Unexpected Dai (x2)"]
+        },
+        "Dix Siècles": {
+            "prix": 150,
+            "cartes": ["Sengenjin Awakes from a Millennium (x2)", "Sengenjin (x3)", "Zombie Vampire",
+                       "Snake-Eyes Doomed Dragon"]
+        },
+        "Chaos": {
+            "prix": 150,
+            "cartes": ["Chaos Dragon Levianeer", "Chaos Space", "Chaos Angel", "Chaos Archfiend"]
+        },
+        "Monstres Ardents": {
+            "prix": 150,
+            "cartes": ["Snake-Eye Ash", "Snake-Eyes Poplar", "Snake-Eyes Flamberge Dragon"]
+        }
+    },
+    "shops": {
+        "Staples": {
+            "cartes": {
+                "Triple Tactics Talents": 10,
+                "Triple Tactics Thrust": 80,
+                "Harpie's Feather Duster": 70,
+                "Heavy Storm": 70,
+                "Evenly Matched": 100,
+                "Ghost Ogre & Snow Rabbit": 80,
+                "Ghost Belle & Haunted Mansion": 80,
+                "Nibiru, the Primal Being": 80,
+                "S:P Little Knight": 100
+            }
+        },
+        "JVC": {
+            "cartes": {
+                "Fairy Tail Snow": 70,
+                "Curious, the Lightsworn Dominion": 70,
+                "Mathmech Circular": 70,
+                "Sillva, Warlord of Dark World": 70,
+                "Superheavy Samurai Wakaushi": 70,
+                "Amorphactor Pain": 70,
+                "Masked HERO Dark Law": 70,
+                "Isolde, Two Tales of the Noble Knights": 70,
+                "Trishula, Dragon of the Ice Barrier": 70
+            },
+            "limite_par_joueur": 1
+        },
+        "Bannis": {
+            "cartes": {
+                "Pot of Greed": 200,
+                "Graceful Charity": 200,
+                "Painful Choice": 200
+            },
+            "limite_par_joueur": 1
+        }
+    }
+}
+
+positions = {}     # {user_id: zone}
+joueurs = {}       # {user_id: {"or": int, "etoiles": int}}
+elimines = set()   # user_id éliminés
+inventaires = {}   # {user_id: {"or": int, "cartes": []}}
+achats_uniques = {}  # {user_id: {item: True}}
+commandes_utilisees = {}  # {user_id: {"fsz": True, "fman": True, ...}}
+commandes_uniques_globales = {}
+derniers_deplacements = {}
+
+# --- CONNEXION BASE DE DONNÉES ---
+def get_db_connection():
+    """Crée une connexion à la base PostgreSQL"""
+    try:
+        conn = psycopg2.connect(DATABASE_URL, sslmode='require')
+        return conn
+    except Exception as e:
+        print(f"Erreur connexion DB: {e}")
+        return None
+
+def init_database():
+    """Initialise les tables de la base de données"""
+    conn = get_db_connection()
+    if not conn:
+        return False
+        
+    try:
+        cursor = conn.cursor()
+        
+        # Table des joueurs
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS joueurs (
+                user_id BIGINT PRIMARY KEY,
+                or_amount INTEGER DEFAULT 30,
+                etoiles INTEGER DEFAULT 2,
+                statuts JSONB DEFAULT '[]'::jsonb,
+                minerva_shield BOOLEAN DEFAULT FALSE,
+                negociateur BOOLEAN DEFAULT FALSE
+            )
+        """)
+        
+        # Table des positions
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS positions (
+                user_id BIGINT PRIMARY KEY,
+                zone VARCHAR(50) DEFAULT 'KaibaCorp'
+            )
+        """)
+        
+        # Table des éliminés
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS elimines (
+                user_id BIGINT PRIMARY KEY
+            )
+        """)
+        
+        # Table des inventaires
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS inventaires (
+                user_id BIGINT PRIMARY KEY,
+                or_amount INTEGER DEFAULT 30,
+                cartes JSONB DEFAULT '[]'::jsonb
+            )
+        """)
+        
+        # Table des achats uniques
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS achats_uniques (
+                user_id BIGINT,
+                shop_name VARCHAR(100),
+                PRIMARY KEY (user_id, shop_name)
+            )
+        """)
+        
+        # Table des commandes globales
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS commandes_globales (
+                command_name VARCHAR(100) PRIMARY KEY,
+                used BOOLEAN DEFAULT FALSE,
+                user_id BIGINT DEFAULT NULL
+            )
+        """)
+        
+        # Table des derniers déplacements
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS derniers_deplacements (
+                user_id BIGINT PRIMARY KEY,
+                needs_duel BOOLEAN DEFAULT FALSE
+            )
+        """)
+        
+        # Table de la boutique
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS boutique_data (
+                id INTEGER PRIMARY KEY DEFAULT 1,
+                data JSONB
+            )
+        """)
+        
+        # Table des bans temporaires
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS bans_temp (
+                joueur VARCHAR(100) PRIMARY KEY,
+                deck VARCHAR(200)
+            )
+        """)
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        print("✅ Base de données initialisée")
+        return True
+        
+    except Exception as e:
+        print(f"Erreur init DB: {e}")
+        if conn:
+            conn.close()
+        return False
+
+DATA_FILE = "data.json"
+
+def peut_utiliser_commande_unique(nom: str) -> bool:
+    """
+    Vérifie si la commande 'nom' a déjà été utilisée globalement (par n'importe qui).
+    Retourne True si c'est la première fois, sinon False.
+    """
+    global commandes_uniques_globales
+    if commandes_uniques_globales.get(nom):
+        return False
+    commandes_uniques_globales[nom] = True
+    save_data()
+    return True
+
+
+exclusive_commands = ["fsz", "zaga", "fman", "capitaine", "fayth", "shaman"]
+
+def can_use_exclusive(user_id: int, cmd_name: str):
+    global commandes_uniques_globales
+
+    if "exclusives_globales" not in commandes_uniques_globales:
+        commandes_uniques_globales["exclusives_globales"] = {}
+    if "exclusives_joueurs" not in commandes_uniques_globales:
+        commandes_uniques_globales["exclusives_joueurs"] = {}
+
+    # Déjà utilisée par quelqu'un
+    if commandes_uniques_globales["exclusives_globales"].get(cmd_name, False):
+        return False, "Cette commande a déjà été utilisée."
+
+    # Ce joueur a déjà utilisé une exclusive
+    if commandes_uniques_globales["exclusives_joueurs"].get(str(user_id), False):
+        return False, "Tu as déjà utilisé une commande spéciale, tu ne peux pas en reprendre une autre."
+
+    return True, None
+
+
+def lock_exclusive(user_id: int, cmd_name: str):
+    global commandes_uniques_globales
+
+    commandes_uniques_globales["exclusives_globales"][cmd_name] = True
+    commandes_uniques_globales["exclusives_joueurs"][str(user_id)] = True
+    save_data()
+
+
+# --- FONCTIONS DE SAUVEGARDE ET CHARGEMENT ---
+def save_data():
+    """Sauvegarde tous les données en base"""
+    conn = get_db_connection()
+    if not conn:
+        return
+        
+    try:
+        cursor = conn.cursor()
+        
+        # Sauvegarder les joueurs
+        for user_id, data in joueurs.items():
+            cursor.execute("""
+                INSERT INTO joueurs (user_id, or_amount, etoiles, statuts, minerva_shield, negociateur)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    or_amount = EXCLUDED.or_amount,
+                    etoiles = EXCLUDED.etoiles,
+                    statuts = EXCLUDED.statuts,
+                    minerva_shield = EXCLUDED.minerva_shield,
+                    negociateur = EXCLUDED.negociateur
+            """, (
+                user_id, 
+                data.get('or', 30), 
+                data.get('etoiles', 2),
+                json.dumps(data.get('statuts', [])),
+                data.get('minerva_shield', False),
+                data.get('negociateur', False)
+            ))
+        
+        # Sauvegarder les positions
+        for user_id, zone in positions.items():
+            cursor.execute("""
+                INSERT INTO positions (user_id, zone) VALUES (%s, %s)
+                ON CONFLICT (user_id) DO UPDATE SET zone = EXCLUDED.zone
+            """, (user_id, zone))
+        
+        # Sauvegarder les éliminés
+        cursor.execute("DELETE FROM elimines")
+        for user_id in elimines:
+            cursor.execute("INSERT INTO elimines (user_id) VALUES (%s)", (user_id,))
+        
+        # Sauvegarder les inventaires
+        for user_id, data in inventaires.items():
+            cursor.execute("""
+                INSERT INTO inventaires (user_id, or_amount, cartes)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    or_amount = EXCLUDED.or_amount,
+                    cartes = EXCLUDED.cartes
+            """, (user_id, data.get('or', 30), json.dumps(data.get('cartes', []))))
+        
+        # Sauvegarder les achats uniques
+        cursor.execute("DELETE FROM achats_uniques")
+        for user_id, shops in achats_uniques.items():
+            for shop_name in shops.keys():
+                cursor.execute("""
+                    INSERT INTO achats_uniques (user_id, shop_name) VALUES (%s, %s)
+                """, (user_id, shop_name))
+        
+        # Sauvegarder les commandes globales
+        for cmd_name, used in commandes_uniques_globales.get('exclusives_globales', {}).items():
+            cursor.execute("""
+                INSERT INTO commandes_globales (command_name, used)
+                VALUES (%s, %s)
+                ON CONFLICT (command_name) DO UPDATE SET used = EXCLUDED.used
+            """, (cmd_name, used))
+        
+        # Sauvegarder les derniers déplacements
+        for user_id, needs_duel in derniers_deplacements.items():
+            cursor.execute("""
+                INSERT INTO derniers_deplacements (user_id, needs_duel)
+                VALUES (%s, %s)
+                ON CONFLICT (user_id) DO UPDATE SET needs_duel = EXCLUDED.needs_duel
+            """, (int(user_id), needs_duel))
+        
+        # Sauvegarder la boutique
+        cursor.execute("""
+            INSERT INTO boutique_data (id, data) VALUES (1, %s)
+            ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data
+        """, (json.dumps(boutique),))
+        
+        # Sauvegarder les bans temporaires
+        cursor.execute("DELETE FROM bans_temp")
+        for joueur, deck in bans_temp.items():
+            cursor.execute("""
+                INSERT INTO bans_temp (joueur, deck) VALUES (%s, %s)
+            """, (joueur, deck))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+    except Exception as e:
+        print(f"Erreur sauvegarde: {e}")
+        if conn:
+            conn.close()
+
+def load_data():
+    """Charge toutes les données depuis la base"""
+    global joueurs, positions, elimines, inventaires, achats_uniques
+    global commandes_uniques_globales, derniers_deplacements, boutique, bans_temp
+    
+    conn = get_db_connection()
+    if not conn:
+        return
+        
+    try:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Charger les joueurs
+        cursor.execute("SELECT * FROM joueurs")
+        for row in cursor.fetchall():
+            joueurs[row['user_id']] = {
+                'or': row['or_amount'],
+                'etoiles': row['etoiles'],
+                'statuts': row['statuts'] if row['statuts'] else [],
+                'minerva_shield': row['minerva_shield'],
+                'negociateur': row['negociateur']
+            }
+        
+        # Charger les positions
+        cursor.execute("SELECT * FROM positions")
+        for row in cursor.fetchall():
+            positions[row['user_id']] = row['zone']
+        
+        # Charger les éliminés
+        cursor.execute("SELECT user_id FROM elimines")
+        elimines.update(row['user_id'] for row in cursor.fetchall())
+        
+        # Charger les inventaires
+        cursor.execute("SELECT * FROM inventaires")
+        for row in cursor.fetchall():
+            inventaires[row['user_id']] = {
+                'or': row['or_amount'],
+                'cartes': row['cartes'] if row['cartes'] else []
+            }
+        
+        # Charger les achats uniques
+        cursor.execute("SELECT * FROM achats_uniques")
+        for row in cursor.fetchall():
+            if row['user_id'] not in achats_uniques:
+                achats_uniques[row['user_id']] = {}
+            achats_uniques[row['user_id']][row['shop_name']] = True
+        
+        # Charger les commandes globales
+        cursor.execute("SELECT * FROM commandes_globales")
+        commandes_uniques_globales = {
+            'exclusives_globales': {},
+            'exclusives_joueurs': {}
+        }
+        for row in cursor.fetchall():
+            commandes_uniques_globales['exclusives_globales'][row['command_name']] = row['used']
+        
+        # Charger les derniers déplacements
+        cursor.execute("SELECT * FROM derniers_deplacements")
+        for row in cursor.fetchall():
+            derniers_deplacements[str(row['user_id'])] = row['needs_duel']
+        
+        # Charger la boutique
+        cursor.execute("SELECT data FROM boutique_data WHERE id = 1")
+        row = cursor.fetchone()
+        if row and row['data']:
+            boutique.update(row['data'])
+        else:
+            boutique.update(BOUTIQUE_INITIALE)
+        
+        # Charger les bans temporaires
+        cursor.execute("SELECT * FROM bans_temp")
+        for row in cursor.fetchall():
+            bans_temp[row['joueur']] = row['deck']
+        
+        cursor.close()
+        conn.close()
+        print("✅ Données chargées depuis PostgreSQL")
+        
+    except Exception as e:
+        print(f"Erreur chargement: {e}")
+        if conn:
+            conn.close()
+
+
+
+# --- UTILITAIRES ---
+
+def est_inscrit(user_id):
+    return user_id in joueurs
+
+
+
+
+@bot.command()
+async def help(ctx):
+    embed = discord.Embed(title="Commandes disponibles", color=discord.Color.blue())
+    embed.add_field(name="!inscrire", value="Inscris-toi au tournoi", inline=False)
+    embed.add_field(name="!aller", value="Va dans une zone du tournoi", inline=False)
+    embed.add_field(name="!zones_dispo", value="Affiche la liste des zones", inline=False)
+    embed.add_field(name="!ou", value="Affiche la zone où tu es", inline=False)
+    embed.add_field(name="!boutique_cmd", value="Affiche la boutique", inline=False)
+    embed.add_field(name="!inventaire", value="Affiche ton inventaire", inline=False)
+    embed.add_field(name="!profil", value="Affiche ton profil", inline=False)
+    embed.add_field(name="!duel @Gagnant @Perdant (Étoiles) (Or)", value="Démarre un duel", inline=False)
+    # Pas de commandes spéciales ni secrètes ici
+    await ctx.send(embed=embed)
+
+
+
+# --- COMMANDES ---
+
+@bot.event
+async def on_ready():
+    load_data()
+    if not cycle_status.is_running():
+        cycle_status.start()
+    await bot.change_presence(activity=discord.Game(STATUSES[0]))
+    print(f"✅ Connecté en tant que {bot.user}")
+
+# --- INSCRIPTION ---
+@bot.command()
+async def inscrire(ctx):
+    user = ctx.author
+    if est_inscrit(user.id):
+        await ctx.send(f"❌ {user.display_name} est déjà inscrit.")
+        return
+    if user.id in elimines:
+        await ctx.send(f"❌ {user.display_name} a été éliminé et ne peut plus se réinscrire.")
+        return
+
+    joueurs[user.id] = {"or": 30, "etoiles": 2}
+    positions[user.id] = "KaibaCorp"
+    inventaires[user.id] = {"or": 30, "cartes": []}
+    save_data()
+    await ctx.send(f"✅ {user.display_name} rejoint le tournoi avec 💰30 or et ⭐2 étoiles !")
+
+@bot.command()
+async def joueurs_liste(ctx):
+    if not joueurs:
+        await ctx.send("❌ Aucun joueur inscrit.")
+        return
+
+    msg = "📜 **Liste des joueurs inscrits :**\n"
+    for uid, stats in joueurs.items():
+        try:
+            user = await bot.fetch_user(uid)
+            pseudo = user.display_name
+        except:
+            pseudo = f"ID {uid}"
+        zone = positions.get(uid, "❓ Inconnue")
+        statuts = stats.get("statuts", [])
+        badge = f" [{' ,'.join(statuts)}]" if statuts else ""
+        msg += f"- {pseudo}{badge} → ⭐{stats['etoiles']} | 💰{stats['or']} | 📍 {zone}\n"
+
+    await ctx.send(msg)
+
+
+# --- PROFIL ---
+@bot.command()
+async def profil(ctx, membre: discord.Member = None):
+    if membre is None:
+        membre = ctx.author
+    if not est_inscrit(membre.id):
+        await ctx.send(f"❌ {membre.display_name} n’est pas inscrit.")
+        return
+    stats = joueurs[membre.id]
+    statuts = stats.get("statuts", [])
+    badge = f" [{' ,'.join(statuts)}]" if statuts else ""
+    await ctx.send(f"👤 {membre.display_name}{badge} → ⭐{stats['etoiles']} | 💰{stats['or']} or")
+
+
+# --- DEPLACEMENT ---
+@bot.command()
+async def zones_dispo(ctx):
+    await ctx.send("🌍 Zones disponibles : " + ", ".join(zones))
+
+@bot.command()
+async def aller(ctx, *, zone: str):
+    user = ctx.author
+    user_id = str(user.id)
+
+    if not est_inscrit(user.id):
+        await ctx.send("❌ Tu dois d’abord t’inscrire avec `!inscrire`.")
+        return
+    if zone not in zones:
+        await ctx.send("❌ Zone invalide ! Tape !zones_dispo pour voir les zones.")
+        return
+
+    # Vérifie si le joueur a déjà changé de zone sans duel
+    if derniers_deplacements.get(user_id, False):
+        await ctx.send("🚫 Tu ne peux pas changer de zone deux fois de suite sans avoir disputé de duel dans ta zone.")
+        return
+
+    # Change la zone
+    positions[user.id] = zone
+    derniers_deplacements[user_id] = True  # il doit jouer un duel avant de rebouger
+    save_data()
+
+    await ctx.send(f"🚶 {user.display_name} se rend à **{zone}**.")
+
+    # Vérifier si un autre joueur est déjà dans la même zone
+    joueurs_dans_zone = [uid for uid, z in positions.items() if z == zone]
+    if len(joueurs_dans_zone) > 1:
+        adversaires = []
+        for uid in joueurs_dans_zone:
+            try:
+                u = await bot.fetch_user(uid)
+                adversaires.append(u.display_name)
+            except:
+                adversaires.append(f"ID {uid}")
+        await ctx.send(f"⚔️ Duel déclenché à **{zone}** entre : {', '.join(adversaires)} !")
+
+
+@bot.command()
+async def ou(ctx, membre: discord.Member = None):
+    if membre is None:
+        membre = ctx.author
+    if membre.id not in positions:
+        await ctx.send(f"❌ {membre.display_name} n’est pas inscrit.")
+        return
+    zone = positions[membre.id]
+    await ctx.send(f"📍 {membre.display_name} est actuellement à **{zone}**.")
+
+
+# --- DUEL ---
+@bot.command()
+async def duel(ctx, gagnant: discord.Member, perdant: discord.Member, etoiles: int, or_: int):
+    if not est_inscrit(gagnant.id) or not est_inscrit(perdant.id):
+        await ctx.send("❌ Les deux joueurs doivent être inscrits.")
+        return
+
+    if joueurs[perdant.id]["etoiles"] < etoiles:
+        await ctx.send(f"❌ {perdant.display_name} n’a pas assez d’étoiles pour miser ({etoiles} demandées).")
+        return
+
+    if joueurs[perdant.id]["or"] < or_:
+        await ctx.send(f"❌ {perdant.display_name} n’a pas assez d’or pour miser ({or_} demandés).")
+        return
+
+    if positions.get(gagnant.id) != positions.get(perdant.id):
+        await ctx.send("❌ Les deux joueurs doivent être dans la même zone pour dueler.")
+        return
+
+    if gagnant.id == perdant.id:
+        await ctx.send("❌ Tu ne peux pas te défier toi-même !")
+        return
+
+    # ----- Effet Minerva côté perdant : perd 1 ⭐ de moins, une seule fois -----
+    perte_etoiles = etoiles
+    if joueurs.get(perdant.id, {}).get("minerva_shield"):
+        perte_etoiles = max(0, etoiles - 1)
+        joueurs[perdant.id]["minerva_shield"] = False
+        # Retire le statut visible
+        statuts = joueurs[perdant.id].get("statuts", [])
+        if "Protégé par Minerva" in statuts:
+            statuts.remove("Protégé par Minerva")
+
+    # Transfert des mises (on transfère ce que le perdant perd réellement)
+    joueurs[perdant.id]["etoiles"] -= perte_etoiles
+    joueurs[gagnant.id]["etoiles"] += perte_etoiles
+    joueurs[gagnant.id]["or"] += or_
+    joueurs[perdant.id]["or"] -= or_
+
+    await ctx.send(
+        f"⚔️ Duel terminé à **{positions[gagnant.id]}** !\n"
+        f"🏆 {gagnant.display_name} gagne ⭐{perte_etoiles} étoile(s) et 💰{or_} or.\n"
+        f"💀 {perdant.display_name} perd ⭐{perte_etoiles} étoile(s) et 💰{or_} or."
+    )
+
+    # Élimination éventuelle
+    if joueurs[perdant.id]["etoiles"] <= 0:
+        await ctx.send(f":skull: **{perdant.display_name} est éliminé du tournoi !**")
+        elimines.add(perdant.id)
+        joueurs.pop(perdant.id, None)
+        positions.pop(perdant.id, None)
+        inventaires.pop(perdant.id, None)
+
+    derniers_deplacements[str(gagnant.id)] = False
+    derniers_deplacements[str(perdant.id)] = False
+
+    save_data()
+
+
+
+
+# --- Boutique ---
+boutique = {
+    "packs": {
+        "Super Polymérisation": {
+            "prix": 150,
+            "cartes": ["Super Polymerisation (x3)", "Mudragon of the Swamp", "Saint Azamina",
+                       "Garura, Wings of Resonant Life", "Earth Golem @Ignister"]
+        },
+        "Light Fiend": {
+            "prix": 150,
+            "cartes": ["Fiendsmith Engraver", "Weiss, Lightsworn Archfiend (x2)", "Evilswarm Exciton Knight",
+                       "Moon of the Closed Heaven", "Fiendsmith Tract"]
+        },
+        "Loi de la Normale": {
+            "prix": 150,
+            "cartes": ["Primite Dragon Ether Beryl (x2)", "Primite Roar (x2)", "Primite Drillbeam",
+                       "Unexpected Dai (x2)"]
+        },
+        "Dix Siècles": {
+            "prix": 150,
+            "cartes": ["Sengenjin Awakes from a Millennium (x2)", "Sengenjin (x3)", "Zombie Vampire",
+                       "Snake-Eyes Doomed Dragon"]
+        },
+        "Chaos": {
+            "prix": 150,
+            "cartes": ["Chaos Dragon Levianeer", "Chaos Space", "Chaos Angel", "Chaos Archfiend"]
+        },
+        "Monstres Ardents": {
+            "prix": 150,
+            "cartes": ["Snake-Eye Ash", "Snake-Eyes Poplar", "Snake-Eyes Flamberge Dragon"]
+        }
+    },
+    "shops": {
+        "Staples": {
+            "cartes": {
+                "Triple Tactics Talents": 90,
+                "Triple Tactics Thrust": 80,
+                "Harpie's Feather Duster": 70,
+                "Heavy Storm": 70,
+                "Evenly Matched": 100,
+                "Ghost Ogre & Snow Rabbit": 80,
+                "Ghost Belle & Haunted Mansion": 80,
+                "Nibiru, the Primal Being": 80,
+                "S:P Little Knight": 100
+            }
+        },
+        "JVC": {
+            "cartes": {
+                "Fairy Tail Snow": 70,
+                "Curious, the Lightsworn Dominion": 70,
+                "Mathmech Circular": 70,
+                "Sillva, Warlord of Dark World": 70,
+                "Superheavy Samurai Wakaushi": 70,
+                "Amorphactor Pain": 70,
+                "Masked HERO Dark Law": 70,
+                "Isolde, Two Tales of the Noble Knights": 70,
+                "Trishula, Dragon of the Ice Barrier": 70
+            },
+            "limite_par_joueur": 1
+        },
+        "Bannis": {
+            "cartes": {
+                "Pot of Greed": 200,
+                "Graceful Charity": 200,
+                "Painful Choice": 200
+            },
+            "limite_par_joueur": 1
+        }
+    }
+}
+
+# --- BOUTIQUE COMMANDES ---
+@bot.command()
+async def boutique_cmd(ctx, *, nom: str = None):
+    """Affiche la boutique ou le détail d’un pack/shop"""
+    if nom is None:
+        msg = "🏬 **Boutique disponible :**\n\n📦 **Packs** :\n"
+        for pack, data in boutique["packs"].items():
+            msg += f"- {pack} ({data['prix']} or)\n"
+        msg += "\n🛒 **Shops** :\n"
+        for shop in boutique["shops"].keys():
+            msg += f"- {shop}\n"
+        await ctx.send(msg)
+    else:
+        nom = nom.strip()
+        if nom in boutique["packs"]:
+            pack = boutique["packs"][nom]
+            msg = f"📦 **{nom}** ({pack['prix']} or)\nCartes incluses :\n"
+            for c in pack["cartes"]:
+                msg += f"- {c}\n"
+            await ctx.send(msg)
+        elif nom in boutique["shops"]:
+            shop = boutique["shops"][nom]
+            msg = f"🛒 **{nom}**\n"
+            for c, prix in shop["cartes"].items():
+                msg += f"- {c} ({prix} or)\n"
+            if "limite_par_joueur" in shop:
+                msg += f"\n⚠️ Limite : {shop['limite_par_joueur']} carte par joueur"
+            await ctx.send(msg)
+        else:
+            await ctx.send("❌ Pack ou shop introuvable.")
+
+@bot.command()
+async def acheter(ctx, *, nom: str):
+    """Permet d’acheter un pack complet ou une carte d’un shop"""
+    user = ctx.author
+    if not est_inscrit(user.id):
+        await ctx.send("❌ Tu dois être inscrit pour acheter.")
+        return
+
+    # Vérifie si c’est un pack
+    # Achat d’un pack
+    if nom in boutique["packs"]:
+        pack = boutique["packs"][nom]
+        prix = pack["prix"]
+
+        if joueurs[user.id]["or"] < prix:
+            await ctx.send(f"❌ Pas assez d’or ! ({prix} requis)")
+            return
+
+        joueurs[user.id]["or"] -= prix
+        inventaires[user.id]["cartes"].extend(pack["cartes"])
+
+        # 🔥 Correction ici
+        del boutique["packs"][nom]
+
+        save_data()
+        await ctx.send(f"✅ {user.display_name} a acheté le pack **{nom}** !")
+        return
+
+
+    # Vérifie si c’est une carte dans un shop
+    for shop_nom, shop in boutique["shops"].items():
+        if nom in shop["cartes"]:
+            prix = shop["cartes"][nom]
+
+            # Réduction "Négociateur" (UNE SEULE carte, puis disparaît)
+            reduction = 30 if joueurs.get(user.id, {}).get("negociateur") else 0
+            prix_effectif = max(0, prix - reduction)
+
+            if joueurs[user.id]["or"] < prix_effectif:
+                await ctx.send(f"❌ Pas assez d’or ! ({prix_effectif} requis)")
+                return
+
+            # limite par joueur
+            if "limite_par_joueur" in shop:
+                if achats_uniques.get(user.id, {}).get(shop_nom, False):
+                    await ctx.send(f"❌ Tu as déjà acheté une carte du shop {shop_nom}.")
+                    return
+                achats_uniques.setdefault(user.id, {})[shop_nom] = True
+            joueurs[user.id]["or"] -= prix
+            inventaires[user.id]["cartes"].append(nom)
+            if "limite_par_joueur" in shop or shop_nom in ["Staples", "JVC", "Bannis"]:
+                del shop["cartes"][nom]
+
+            # (après tes éventuels contrôles de limite par joueur)
+            joueurs[user.id]["or"] -= prix_effectif
+            inventaires[user.id]["cartes"].append(nom)
+
+            # Si la réduction a été appliquée, on consomme le statut et on l'enlève de l'affichage
+            if reduction > 0:
+                joueurs[user.id]["negociateur"] = False
+                statuts = joueurs[user.id].get("statuts", [])
+                if "Négociateur" in statuts:
+                    statuts.remove("Négociateur")
+
+            save_data()
+            await ctx.send(f"✅ {user.display_name} a acheté **{nom}** dans le shop {shop_nom} !")
+            return
+
+    await ctx.send("❌ Aucun pack ou carte trouvé avec ce nom.")
+
+
+@bot.command()
+async def inventaire(ctx, membre: discord.Member = None):
+    """Affiche l’inventaire de soi-même ou d’un autre joueur"""
+    if membre is None:
+        membre = ctx.author
+
+    if not est_inscrit(membre.id):
+        await ctx.send(f"❌ {membre.display_name} n’est pas inscrit.")
+        return
+
+    cartes = inventaires[membre.id].get("cartes", [])
+    or_joueur = joueurs[membre.id]["or"]
+
+    if not cartes:
+        await ctx.send(f"🎒 **Inventaire de {membre.display_name}**\n💰 Or : {or_joueur}\n📦 Cartes : *(vide)*")
+    else:
+        msg = f"🎒 **Inventaire de {membre.display_name}**\n💰 Or : {or_joueur}\n📦 Cartes :\n"
+        for c in cartes:
+            msg += f"- {c}\n"
+        await ctx.send(msg)
+
+
+# --- COMMANDES SECRÈTES --- 
+
+@bot.command()
+async def fsz(ctx):
+    user_id = ctx.author.id
+    ok, msg = can_use_exclusive(user_id, "fsz")
+    if not ok:
+        await ctx.send(msg)
+        return
+
+    if str(user_id) == "306059710908596224":
+        joueurs[user_id]["or"] = joueurs[user_id].get("or", 0) - 10
+        await ctx.send("Je te hais. -10 or")
+    else:
+        joueurs[user_id]["or"] = joueurs[user_id].get("or", 0) + 10
+        await ctx.send(f"{ctx.author.display_name} a activé Mathmech Circular : **+10 or** !")
+
+    lock_exclusive(user_id, "fsz")
+    save_data()
+
+
+@bot.command()
+async def fman(ctx):
+    user_id = ctx.author.id
+    ok, msg = can_use_exclusive(user_id, "fman")
+    if not ok:
+        await ctx.send(msg)
+        return
+
+    inventaires[user_id]["cartes"].append("Dimensional Fissure")
+    lock_exclusive(user_id, "fman")
+
+    await ctx.send("Le fait que tu aies trouvé cette commande montre que tes decks sont bien pensés et réfléchis...\n"
+                   "Tu gagnes : 1 **Dimensional Fissure** !")
+    save_data()
+
+
+@bot.command()
+async def minerva(ctx):
+    user = ctx.author
+    if not est_inscrit(user.id):
+        await ctx.send("❌ Tu dois d’abord t’inscrire avec `!inscrire`.")
+        return
+
+    if not peut_utiliser_commande_unique("minerva"):
+        await ctx.send("Cette commande a déjà été utilisée")
+        return
+
+    joueurs[user.id].setdefault("statuts", [])
+    if "Protégé par Minerva" not in joueurs[user.id]["statuts"]:
+        joueurs[user.id]["statuts"].append("Protégé par Minerva")
+    joueurs[user.id]["minerva_shield"] = True
+
+    await ctx.send(f"{user.mention} est désormais **Protégé par Minerva** ! (perdra 1 ⭐ de moins au prochain duel perdu)")
+    save_data()
+
+
+@bot.command()
+async def zaga(ctx):
+    user_id = ctx.author.id
+    ok, msg = can_use_exclusive(user_id, "zaga")
+    if not ok:
+        await ctx.send(msg)
+        return
+
+    autres_joueurs = [uid for uid in joueurs.keys() if uid != user_id]
+    if not autres_joueurs:
+        await ctx.send("Il ne s'est rien passé...")
+        return
+
+    victime = random.choice(autres_joueurs)
+    joueurs[victime]["or"] = joueurs[victime].get("or", 0) - 20
+    joueurs[user_id]["or"] = joueurs[user_id].get("or", 0) + 20
+
+    lock_exclusive(user_id, "zaga")
+
+    victime_user = await bot.fetch_user(int(victime))
+    await ctx.send(f"{ctx.author.display_name} a volé **20 or** à ZagaNa... euh plutôt à {victime_user.display_name} !")
+    save_data()
+
+
+
+@bot.command()
+async def fayth(ctx):
+    user_id = ctx.author.id
+    ok, msg = can_use_exclusive(user_id, "fayth")
+    if not ok:
+        await ctx.send(msg)
+        return
+
+    joueurs[user_id].setdefault("statuts", [])
+    if "Négociateur" not in joueurs[user_id]["statuts"]:
+        joueurs[user_id]["statuts"].append("Négociateur")
+
+    lock_exclusive(user_id, "fayth")
+
+    await ctx.send("Grâce à la négociation de Fayth, la prochaine carte que tu achèteras dans un shop coûtera 30 or de moins !")
+    save_data()
+
+
+@bot.command()
+async def capitaine(ctx):
+    user_id = ctx.author.id
+    ok, msg = can_use_exclusive(user_id, "capitaine")
+    if not ok:
+        await ctx.send(msg)
+        return
+
+    joueurs[user_id].setdefault("statuts", [])
+    if "Roux" not in joueurs[user_id]["statuts"]:
+        joueurs[user_id]["statuts"].append("Roux")
+
+    lock_exclusive(user_id, "capitaine")
+
+    await ctx.send(f"{ctx.author.display_name} est traité comme roux pour le reste du tournoi !")
+
+@bot.command()
+async def roux(ctx):
+    """Commande secrète : uniquement pour les joueurs roux."""
+    user = ctx.author
+    uid = str(user.id)
+
+    # Vérif inscription
+    if not est_inscrit(user.id):
+        await ctx.send("❌ Tu dois d’abord t’inscrire avec `!inscrire`.")
+        return
+
+    # Vérif statut "roux"
+    if "statuts" not in joueurs[user.id] or "Roux" not in joueurs[user.id]["statuts"]:
+        await ctx.send("❌ Tu n’es pas roux, tu ne peux pas utiliser cette commande.")
+        return
+
+    # Vérif si la commande est déjà prise globalement
+    if commandes_uniques_globales["exclusives_globales"].get("roux", False):
+        await ctx.send("❌ Cette commande a déjà été utilisée par un autre joueur.")
+        return
+
+    # Effet : +1 étoile
+    joueurs[user.id]["etoiles"] = joueurs[user.id].get("etoiles", 0) + 1
+
+    # Marquer la commande comme utilisée globalement
+    commandes_uniques_globales["exclusives_globales"]["roux"] = True
+    save_data()
+
+    await ctx.send(f"{user.display_name} gagne **1 étoile** !")
+
+
+
+@bot.command()
+async def shaman(ctx):
+    user_id = ctx.author.id
+    ok, msg = can_use_exclusive(user_id, "shaman")
+    if not ok:
+        await ctx.send(msg)
+        return
+
+    lock_exclusive(user_id, "shaman")
+
+    try:
+        await ctx.author.send("https://media.discordapp.net/attachments/1256671184745922610/1408048409587220653/image.png?ex=68a852c5&is=68a70145&hm=8e6c9d33f25f8bf0c2bd13e2e0467be636f6441298636db5eeee9a14d413a379&=&format=webp&quality=lossless&width=1318&height=758")
+        await ctx.send("Un vent étrange souffle...")
+    except:
+        await ctx.send("Impossible de t’envoyer un MP. Veuillez contacter ATEM.")
+
+
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+
+    uid = message.author.id
+    contenu = message.content
+
+    # 4.a) Pénalité spéciale pour l'ID donné quand il mentionne "Circular" ou "Mathmech"
+    if uid == 306059710908596224 and ("Circular" in contenu or "Mathmech" in contenu):
+        # Compte uniquement les lettres (pas espaces/punct)
+        perte = sum(1 for ch in contenu if ch.isalpha())
+        if est_inscrit(uid):
+            joueurs[uid]["or"] -= perte
+            save_data()
+        await message.channel.send(f" {message.author.mention} Vu que t'aimes tant parler de moi, chaque **lettre** te coûte 1 or… Tu perds **{perte}** or !")
+
+    # 4.b) !help : la 1ʳᵉ fois → message + -5 or (on laisse le help normal s’afficher derrière)
+    if contenu.strip().lower().startswith(f"{PREFIX}help"):
+        if est_inscrit(uid):
+            achats_uniques.setdefault(uid, {})
+            cle = "cmd_help_penalite"
+            if not achats_uniques[uid].get(cle):
+                achats_uniques[uid][cle] = True
+                joueurs[uid]["or"] -= 5
+                save_data()
+                await message.channel.send("Ne sais-tu donc PAS LIRE le salon spécifiquement DÉDIÉ à mon fonctionnement ??? Pour la peine... - 5 or !")
+
+    # Très important pour ne pas bloquer les commandes
+    await bot.process_commands(message)
+
+
+
+
+# --- ADMIN ---
+OWNER_ID = 673606402782265344  # <<< Ton ID Discord
+
+def is_owner():
+    def predicate(ctx):
+        return ctx.author.id == OWNER_ID
+    return commands.check(predicate)
+
+@bot.command()
+@is_owner()
+async def admin_or(ctx, membre: discord.Member, montant: int):
+    """Ajoute de l'or à un joueur (admin only)"""
+    if not est_inscrit(membre.id):
+        await ctx.send(f"❌ {membre.display_name} n’est pas inscrit.")
+        return
+    joueurs[membre.id]["or"] += montant
+    save_data()
+    await ctx.send(f"✅ {membre.display_name} reçoit 💰{montant} or (total = {joueurs[membre.id]['or']}).")
+
+@bot.command()
+@is_owner()
+async def admin_etoiles(ctx, membre: discord.Member, montant: int):
+    """Ajoute des étoiles à un joueur (admin only)"""
+    if not est_inscrit(membre.id):
+        await ctx.send(f"❌ {membre.display_name} n’est pas inscrit.")
+        return
+    joueurs[membre.id]["etoiles"] += montant
+    save_data()
+    await ctx.send(f"✅ {membre.display_name} reçoit ⭐{montant} étoiles (total = {joueurs[membre.id]['etoiles']}).")
+
+@bot.command()
+@is_owner()
+async def admin_reset_or(ctx, membre: discord.Member):
+    """Réinitialise l'or d'un joueur à 0 (admin only)"""
+    if not est_inscrit(membre.id):
+        await ctx.send(f"❌ {membre.display_name} n’est pas inscrit.")
+        return
+    joueurs[membre.id]["or"] = 0
+    save_data()
+    await ctx.send(f"⚠️ L’or de {membre.display_name} a été réinitialisé à 0.")
+
+
+# --- RESET ---
+
+@bot.command()
+@is_owner()
+async def reset(ctx):
+    """Réinitialise complètement le tournoi (OWNER uniquement)."""
+
+    global joueurs, positions, elimines, inventaires, achats_uniques, boutique
+    global commandes_uniques_globales, derniers_deplacements, bans_temp
+    global proteges_minerva, negociateurs
+
+    # Reset complet
+    joueurs = {}
+    positions = {}
+    elimines = set()
+    inventaires = {}
+    achats_uniques = {}
+    commandes_uniques_globales = {"exclusives_globales": {}, "exclusives_joueurs": {}}
+    derniers_deplacements = {}
+    bans_temp = {}
+    boutique = BOUTIQUE_INITIALE
+
+    # Si tu as des statuts spéciaux comme Minerva, Boutique_CM, etc.
+    proteges_minerva = {}
+    negociateurs = {}
+
+    save_data()
+    await ctx.send("🔄 Toutes les données du tournoi ont été complètement réinitialisées !")
+
+
+@reset.error
+async def reset_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ Tu n'as pas la permission d'utiliser cette commande.")
+
+@bot.command()
+async def reset_exclusives(ctx):
+    """Réinitialise toutes les commandes spéciales (OWNER uniquement)."""
+    if ctx.author.id != OWNER_ID:
+        await ctx.send("❌ Seul l'OWNER du bot peut utiliser cette commande.")
+        return
+
+    global commandes_uniques_globales
+
+    # Reset des exclusives globales
+    for cmd in ["fsz", "zaga", "fman", "capitaine", "boutique_cm", "shaman"]:
+        commandes_uniques_globales["exclusives_globales"][cmd] = False
+
+    # Reset des exclusives par joueur
+    commandes_uniques_globales["exclusives_joueurs"] = {}
+
+    save_data()
+    await ctx.send("✅ Toutes les commandes spéciales ont été réinitialisées !")
+
+@bot.command(name="reset_secrets")
+@is_owner()
+async def reset_secrets(ctx):
+    """Réinitialise toutes les commandes secrètes/exclusives (globales et par joueur)."""
+    global commandes_uniques_globales
+
+    # S'assurer de la structure
+    if "exclusives_globales" not in commandes_uniques_globales or not isinstance(commandes_uniques_globales["exclusives_globales"], dict):
+        commandes_uniques_globales["exclusives_globales"] = {}
+    if "exclusives_joueurs" not in commandes_uniques_globales or not isinstance(commandes_uniques_globales["exclusives_joueurs"], dict):
+        commandes_uniques_globales["exclusives_joueurs"] = {}
+
+    # Liste canonique des exclusives connues
+    canon = {"fsz","zaga","fman","capitaine","fayth","shaman","roux","minerva"}
+
+    # 1) Réinitialiser les flags legacy au niveau racine (ex: 'minerva')
+    for k, v in list(commandes_uniques_globales.items()):
+        if k in ("exclusives_globales", "exclusives_joueurs"):
+            continue
+        if isinstance(v, bool):
+            commandes_uniques_globales[k] = False
+
+    # 2) Réinitialiser les exclusives globales et ajouter les clés manquantes
+    for k in set(list(commandes_uniques_globales["exclusives_globales"].keys()) + list(canon)):
+        commandes_uniques_globales["exclusives_globales"][k] = False
+
+    # 3) Vider les verrous par joueur
+    commandes_uniques_globales["exclusives_joueurs"] = {}
+
+    save_data()
+    await ctx.send("✅ Réinitialisation terminée.")
+
+
+# --- TOURNOI TYRANO ---
+# Stockage temporaire : {adversaire: {auteur: deck}}
+# Stockage temporaire : {joueur: deck}
+bans_temp = {}
+
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+
+    # Seulement en DM
+    if message.guild is None:
+        deck = message.content.strip()
+        if not deck:
+            await message.channel.send("❌ Merci d’indiquer le nom d’un deck.")
+            return
+
+        joueur = message.author.display_name
+        bans_temp[joueur] = deck
+        await message.channel.send(f"✅ Ton choix a bien été enregistré : bannir **{deck}**.")
+
+        # Vérifier si 2 joueurs ont répondu
+        if len(bans_temp) >= 2:
+            joueurs = list(bans_temp.keys())
+            channel = discord.utils.get(bot.get_all_channels(), name="conversation-tournois")
+
+            if channel and isinstance(channel, discord.TextChannel):
+                txt = "📢 Résultats des bans :\n"
+                for j in joueurs:
+                    txt += f"🔸 **{j}** bannit **{bans_temp[j]}**\n"
+                await channel.send(txt)
+            else:
+                print("⚠️ Erreur : le salon 'conversation-tournois' est introuvable.")
+
+            # Reset après annonce
+            bans_temp.clear()
+
+    await bot.process_commands(message)
+
+@bot.command()
+async def dispo(ctx):
+    """Affiche l'état des bans enregistrés en MP."""
+    if not bans_temp:
+        await ctx.send("Aucun joueur n'a encore envoyé de ban en MP.")
+    else:
+        txt = "Bans déjà reçus :\n"
+        for joueur in bans_temp:
+            txt += f"- {joueur}\n"
+        await ctx.send(txt)
+
+
+@bot.command()
+async def clear(ctx):
+
+    bans_temp.clear()
+    await ctx.send("🗑️ Les bans temporaires ont été réinitialisés.")
+
+
+print("Commandes enregistrées :", list(bot.all_commands.keys()))
+
+
+# --- LANCEMENT ---
+keep_alive()
+bot.run(TOKEN)
+@bot.command()
+async def ping(ctx):
+    await ctx.send("Pong 🏓")
+URL = "https://e452861f-0ced-458c-b285-a009c7261654-00-orp7av1otz2y.picard.replit.dev/"
+# Vérification automatique toutes les 5 minutes
+@tasks.loop(minutes=5)
+async def check_server():
+    try:
+        r = requests.get(URL, timeout=5)
+        if r.status_code == 200:
+            print("✅ Le serveur Flask répond bien.")
+        else:
+            print(f"⚠️ Problème : code {r.status_code} reçu de Flask")
+    except Exception as e:
+        print(f"❌ Impossible de joindre le serveur Flask : {e}")
+bot.run(TOKEN)
