@@ -1065,30 +1065,6 @@ async def minerva(ctx):
     save_data()
 
 
-@bot.command()
-async def zaga(ctx):
-    user_id = ctx.author.id
-    ok, msg = can_use_exclusive(user_id, "zaga")
-    if not ok:
-        await ctx.send(msg)
-        return
-
-    autres_joueurs = [uid for uid in joueurs.keys() if uid != user_id]
-    if not autres_joueurs:
-        await ctx.send("Il ne s'est rien passé...")
-        return
-
-    victime = random.choice(autres_joueurs)
-    joueurs[victime]["or"] = joueurs[victime].get("or", 0) - 20
-    joueurs[user_id]["or"] = joueurs[user_id].get("or", 0) + 20
-
-    lock_exclusive(user_id, "zaga")
-
-    victime_user = await bot.fetch_user(int(victime))
-    await ctx.send(f"{ctx.author.display_name} a volé **20 or** à ZagaNa... euh plutôt à {victime_user.display_name} !")
-    save_data()
-
-
 
 @bot.command()
 async def fayth(ctx):
