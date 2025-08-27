@@ -10,6 +10,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from urllib.parse import urlparse
 from keep_alive import keep_alive
+import copy
 
 
 # --- CONFIG ---
@@ -556,7 +557,7 @@ async def on_ready():
     
     await bot.change_presence(activity=discord.Game("Bot initialisé"))
     print(f"✅ Connecté en tant que {bot.user}")
-    
+
 
 # --- INSCRIPTION ---
 @bot.command()
@@ -828,34 +829,32 @@ async def boutique_cmd(ctx, *, nom: str = None):
 
 @bot.command()
 async def acheter(ctx, *, nom: str):
-    """Permet d’acheter un pack complet ou une carte d’un shop"""
+    """Permet d'acheter un pack complet ou une carte d'un shop"""
     user = ctx.author
     if not est_inscrit(user.id):
         await ctx.send("❌ Tu dois être inscrit pour acheter.")
         return
 
-    # Vérifie si c’est un pack
-    # Achat d’un pack
+    # Vérifier si c'est un pack
     if nom in boutique["packs"]:
         pack = boutique["packs"][nom]
         prix = pack["prix"]
 
         if joueurs[user.id]["or"] < prix:
-            await ctx.send(f"❌ Pas assez d’or ! ({prix} requis)")
+            await ctx.send(f"❌ Pas assez d'or ! ({prix} requis)")
             return
 
         joueurs[user.id]["or"] -= prix
         inventaires[user.id]["cartes"].extend(pack["cartes"])
 
-        # 🔥 Correction ici
+        # Supprimer le pack de la boutique
         del boutique["packs"][nom]
 
         save_data()
         await ctx.send(f"✅ {user.display_name} a acheté le pack **{nom}** !")
         return
 
-
-    # Vérifie si c’est une carte dans un shop
+    # Vérifier si c'est une carte dans un shop
     for shop_nom, shop in boutique["shops"].items():
         if nom in shop["cartes"]:
             prix = shop["cartes"][nom]
@@ -865,24 +864,20 @@ async def acheter(ctx, *, nom: str):
             prix_effectif = max(0, prix - reduction)
 
             if joueurs[user.id]["or"] < prix_effectif:
-                await ctx.send(f"❌ Pas assez d’or ! ({prix_effectif} requis)")
+                await ctx.send(f"❌ Pas assez d'or ! ({prix_effectif} requis)")
                 return
 
-            # limite par joueur
+            # Limite par joueur
             if "limite_par_joueur" in shop:
                 if achats_uniques.get(user.id, {}).get(shop_nom, False):
                     await ctx.send(f"❌ Tu as déjà acheté une carte du shop {shop_nom}.")
                     return
                 achats_uniques.setdefault(user.id, {})[shop_nom] = True
-            joueurs[user.id]["or"] -= prix
-            inventaires[user.id]["cartes"].append(nom)
-            if "limite_par_joueur" in shop or shop_nom in ["Staples", "JVC", "Bannis"]:
-                del shop["cartes"][nom]
 
-            # (après tes éventuels contrôles de limite par joueur)
+            # Débiter le prix effectif (avec réduction éventuelle)
             joueurs[user.id]["or"] -= prix_effectif
             inventaires[user.id]["cartes"].append(nom)
-
+            
             # Si la réduction a été appliquée, on consomme le statut et on l'enlève de l'affichage
             if reduction > 0:
                 joueurs[user.id]["negociateur"] = False
@@ -890,11 +885,20 @@ async def acheter(ctx, *, nom: str):
                 if "Négociateur" in statuts:
                     statuts.remove("Négociateur")
 
+            # Supprimer la carte du shop si c'est un shop à stock limité
+            if "limite_par_joueur" in shop or shop_nom in ["Staples", "JVC", "Bannis"]:
+                del shop["cartes"][nom]
+
             save_data()
-            await ctx.send(f"✅ {user.display_name} a acheté **{nom}** dans le shop {shop_nom} !")
+            msg = f"✅ {user.display_name} a acheté **{nom}** dans le shop {shop_nom}"
+            if reduction > 0:
+                msg += f" (réduction Négociateur appliquée : -{reduction} or)"
+            msg += " !"
+            await ctx.send(msg)
             return
 
     await ctx.send("❌ Aucun pack ou carte trouvé avec ce nom.")
+
 
 
 @bot.command()
@@ -1009,14 +1013,17 @@ async def fayth(ctx):
         await ctx.send(msg)
         return
 
+    # Initialiser le flag negociateur
+    joueurs[user_id]["negociateur"] = True
+    
     joueurs[user_id].setdefault("statuts", [])
     if "Négociateur" not in joueurs[user_id]["statuts"]:
         joueurs[user_id]["statuts"].append("Négociateur")
 
     lock_exclusive(user_id, "fayth")
+    save_data()
 
     await ctx.send("Grâce à la négociation de Fayth, la prochaine carte que tu achèteras dans un shop coûtera 30 or de moins !")
-    save_data()
 
 
 @bot.command()
@@ -1180,14 +1187,17 @@ async def reset(ctx):
     commandes_uniques_globales = {"exclusives_globales": {}, "exclusives_joueurs": {}}
     derniers_deplacements = {}
     bans_temp = {}
-    boutique = BOUTIQUE_INITIALE
+    
+    # CORRECTION : faire une copie profonde de BOUTIQUE_INITIALE
+    import copy
+    boutique = copy.deepcopy(BOUTIQUE_INITIALE)
 
     # Si tu as des statuts spéciaux comme Minerva, Boutique_CM, etc.
     proteges_minerva = {}
     negociateurs = {}
 
     save_data()
-    await ctx.send("🔄 Toutes les données du tournoi ont été complètement réinitialisées !")
+    await ctx.send("🔥 Toutes les données du tournoi ont été complètement réinitialisées !")
 
 
 @reset.error
