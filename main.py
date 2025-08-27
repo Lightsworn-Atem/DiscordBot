@@ -166,7 +166,11 @@ def init_database():
                 etoiles INTEGER DEFAULT 2,
                 statuts JSONB DEFAULT '[]'::jsonb,
                 minerva_shield BOOLEAN DEFAULT FALSE,
-                negociateur BOOLEAN DEFAULT FALSE
+                negociateur BOOLEAN DEFAULT FALSE,
+                atem_protection BOOLEAN DEFAULT FALSE,
+                skream_omnipresent BOOLEAN DEFAULT FALSE,
+                tyrano_active BOOLEAN DEFAULT FALSE,
+                yop_coin_advantage BOOLEAN DEFAULT FALSE
             )
         """)
         
@@ -262,7 +266,16 @@ def peut_utiliser_commande_unique(nom: str) -> bool:
     return True
 
 
-exclusive_commands = ["fsz", "zaga", "fman", "capitaine", "fayth", "shaman"]
+exclusive_commands = ["fsz", "zaga", "fman", "capitaine", "fayth", "shaman", 
+                     "atem", "skream", "tyrano", "retro", "voorhees", "yop"]
+
+TOURNAMENT_WINNERS_JVC = [
+    673606402782265344,
+    536681221481037824,
+    383073877820964864,
+    699694209950548069,
+    884822218566152222
+]
 
 def can_use_exclusive(user_id: int, cmd_name: str):
     global commandes_uniques_globales
@@ -301,25 +314,34 @@ def save_data():
     try:
         cursor = conn.cursor()
         
-        # Sauvegarder les joueurs
+        # Sauvegarder les joueurs avec nouveaux champs
         for user_id, data in joueurs.items():
             try:
                 cursor.execute("""
-                    INSERT INTO joueurs (user_id, or_amount, etoiles, statuts, minerva_shield, negociateur)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    INSERT INTO joueurs (user_id, or_amount, etoiles, statuts, minerva_shield, negociateur,
+                                       atem_protection, skream_omnipresent, tyrano_active, yop_coin_advantage)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (user_id) DO UPDATE SET
                         or_amount = EXCLUDED.or_amount,
                         etoiles = EXCLUDED.etoiles,
                         statuts = EXCLUDED.statuts,
                         minerva_shield = EXCLUDED.minerva_shield,
-                        negociateur = EXCLUDED.negociateur
+                        negociateur = EXCLUDED.negociateur,
+                        atem_protection = EXCLUDED.atem_protection,
+                        skream_omnipresent = EXCLUDED.skream_omnipresent,
+                        tyrano_active = EXCLUDED.tyrano_active,
+                        yop_coin_advantage = EXCLUDED.yop_coin_advantage
                 """, (
                     int(user_id), 
                     data.get('or', 30), 
                     data.get('etoiles', 2),
                     json.dumps(data.get('statuts', [])),
                     data.get('minerva_shield', False),
-                    data.get('negociateur', False)
+                    data.get('negociateur', False),
+                    data.get('atem_protection', False),
+                    data.get('skream_omnipresent', False),
+                    data.get('tyrano_active', False),
+                    data.get('yop_coin_advantage', False)
                 ))
             except Exception as e:
                 print(f"Erreur sauvegarde joueur {user_id}: {e}")
@@ -444,7 +466,7 @@ def load_data():
     try:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Charger les joueurs
+        # Charger les joueurs avec nouveaux champs
         cursor.execute("SELECT * FROM joueurs")
         joueurs.clear()
         for row in cursor.fetchall():
@@ -453,7 +475,11 @@ def load_data():
                 'etoiles': row['etoiles'],
                 'statuts': row['statuts'] if row['statuts'] else [],
                 'minerva_shield': row['minerva_shield'],
-                'negociateur': row['negociateur']
+                'negociateur': row['negociateur'],
+                'atem_protection': row.get('atem_protection', False),
+                'skream_omnipresent': row.get('skream_omnipresent', False),
+                'tyrano_active': row.get('tyrano_active', False),
+                'yop_coin_advantage': row.get('yop_coin_advantage', False)
             }
         
         # Charger les positions
@@ -667,21 +693,27 @@ async def ou(ctx, membre: discord.Member = None):
 # --- DUEL ---
 @bot.command()
 async def duel(ctx, gagnant: discord.Member, perdant: discord.Member, etoiles: int, or_: int):
+    """COMMANDE MODIFIÉE - Duel avec gestion des nouveaux effets"""
     if not est_inscrit(gagnant.id) or not est_inscrit(perdant.id):
         await ctx.send("❌ Les deux joueurs doivent être inscrits.")
         return
 
     if joueurs[perdant.id]["etoiles"] < etoiles:
-        await ctx.send(f"❌ {perdant.display_name} n’a pas assez d’étoiles pour miser ({etoiles} demandées).")
+        await ctx.send(f"❌ {perdant.display_name} n'a pas assez d'étoiles pour miser ({etoiles} demandées).")
         return
 
     if joueurs[perdant.id]["or"] < or_:
-        await ctx.send(f"❌ {perdant.display_name} n’a pas assez d’or pour miser ({or_} demandés).")
+        await ctx.send(f"❌ {perdant.display_name} n'a pas assez d'or pour miser ({or_} demandés).")
         return
 
-    if positions.get(gagnant.id) != positions.get(perdant.id):
-        await ctx.send("❌ Les deux joueurs doivent être dans la même zone pour dueler.")
-        return
+    # Vérification zone avec effet Skream
+    gagnant_omnipresent = joueurs.get(gagnant.id, {}).get("skream_omnipresent", False)
+    perdant_omnipresent = joueurs.get(perdant.id, {}).get("skream_omnipresent", False)
+    
+    if not gagnant_omnipresent and not perdant_omnipresent:
+        if positions.get(gagnant.id) != positions.get(perdant.id):
+            await ctx.send("❌ Les deux joueurs doivent être dans la même zone pour dueler.")
+            return
 
     if gagnant.id == perdant.id:
         await ctx.send("❌ Tu ne peux pas te défier toi-même !")
@@ -697,30 +729,61 @@ async def duel(ctx, gagnant: discord.Member, perdant: discord.Member, etoiles: i
         if "Protégé par Minerva" in statuts:
             statuts.remove("Protégé par Minerva")
 
-    # Transfert des mises (on transfère ce que le perdant perd réellement)
+    # ----- Consommation effet Skream après 1 duel -----
+    skream_message = ""
+    if gagnant_omnipresent:
+        joueurs[gagnant.id]["skream_omnipresent"] = False
+        statuts = joueurs[gagnant.id].get("statuts", [])
+        if "Omniprésent" in statuts:
+            statuts.remove("Omniprésent")
+        skream_message = f"\n🌟 L'effet Skream de {gagnant.display_name} s'estompe après ce duel."
+    
+    if perdant_omnipresent:
+        joueurs[perdant.id]["skream_omnipresent"] = False
+        statuts = joueurs[perdant.id].get("statuts", [])
+        if "Omniprésent" in statuts:
+            statuts.remove("Omniprésent")
+        skream_message += f"\n🌟 L'effet Skream de {perdant.display_name} s'estompe après ce duel."
+
+    # Transfert des mises
     joueurs[perdant.id]["etoiles"] -= perte_etoiles
     joueurs[gagnant.id]["etoiles"] += perte_etoiles
     joueurs[gagnant.id]["or"] += or_
     joueurs[perdant.id]["or"] -= or_
 
     await ctx.send(
-        f"⚔️ Duel terminé à **{positions[gagnant.id]}** !\n"
+        f"⚔️ Duel terminé à **{positions.get(gagnant.id, 'Zone inconnue')}** !\n"
         f"🏆 {gagnant.display_name} gagne ⭐{perte_etoiles} étoile(s) et 💰{or_} or.\n"
         f"💀 {perdant.display_name} perd ⭐{perte_etoiles} étoile(s) et 💰{or_} or."
+        f"{skream_message}"
     )
 
-    # Élimination éventuelle
+    # Vérification élimination avec protection Atem
     if joueurs[perdant.id]["etoiles"] <= 0:
-        await ctx.send(f":skull: **{perdant.display_name} est éliminé du tournoi !**")
-        elimines.add(perdant.id)
-        joueurs.pop(perdant.id, None)
-        positions.pop(perdant.id, None)
-        inventaires.pop(perdant.id, None)
+        if joueurs.get(perdant.id, {}).get("atem_protection", False):
+            # Protection Atem activée
+            joueurs[perdant.id]["etoiles"] = 1
+            joueurs[perdant.id]["atem_protection"] = False
+            
+            # Retirer le statut
+            statuts = joueurs[perdant.id].get("statuts", [])
+            if "Protégé par Atem" in statuts:
+                statuts.remove("Protégé par Atem")
+                
+            await ctx.send(f"🛡️ **{perdant.display_name}** était protégé par Atem ! Il survit avec 1 étoile !")
+        else:
+            # Élimination normale
+            await ctx.send(f":skull: **{perdant.display_name} est éliminé du tournoi !**")
+            elimines.add(perdant.id)
+            joueurs.pop(perdant.id, None)
+            positions.pop(perdant.id, None)
+            inventaires.pop(perdant.id, None)
 
     derniers_deplacements[str(gagnant.id)] = False
     derniers_deplacements[str(perdant.id)] = False
 
     save_data()
+
 
 
 
@@ -926,6 +989,129 @@ async def inventaire(ctx, membre: discord.Member = None):
 # --- COMMANDES SECRÈTES --- 
 
 @bot.command()
+async def atem(ctx):
+    user_id = ctx.author.id
+    ok, msg = can_use_exclusive(user_id, "atem")
+    if not ok:
+        await ctx.send(msg)
+        return
+
+    # Activer la protection Atem
+    joueurs[user_id]["atem_protection"] = True
+    
+    joueurs[user_id].setdefault("statuts", [])
+    if "Protégé par Atem" not in joueurs[user_id]["statuts"]:
+        joueurs[user_id]["statuts"].append("Protégé par Atem")
+
+    lock_exclusive(user_id, "atem")
+    save_data()
+
+    await ctx.send(f"{ctx.author.display_name} a corrompu l'orga ! La prochaine fois que tu devrais être éliminé, tu survis avec 1 étoile !")
+
+
+@bot.command()
+async def skream(ctx):
+    user_id = ctx.author.id
+    ok, msg = can_use_exclusive(user_id, "skream")
+    if not ok:
+        await ctx.send(msg)
+        return
+
+    # Activer l'omniprésence
+    joueurs[user_id]["skream_omnipresent"] = True
+    
+    joueurs[user_id].setdefault("statuts", [])
+    if "Omniprésent" not in joueurs[user_id]["statuts"]:
+        joueurs[user_id]["statuts"].append("Omniprésent")
+
+    lock_exclusive(user_id, "skream")
+    save_data()
+
+    await ctx.send(f"{ctx.author.display_name} est maintenant présent dans chaque zone du tournoi ! Tu peux affronter n'importe qui !")
+
+
+@bot.command()
+async def tyrano(ctx):
+    user_id = ctx.author.id
+    ok, msg = can_use_exclusive(user_id, "tyrano")
+    if not ok:
+        await ctx.send(msg)
+        return
+
+    # Activer l'effet Tyrano
+    joueurs[user_id]["tyrano_active"] = True
+    
+    joueurs[user_id].setdefault("statuts", [])
+    if "Tyrano actif" not in joueurs[user_id]["statuts"]:
+        joueurs[user_id]["statuts"].append("Tyrano actif")
+
+    lock_exclusive(user_id, "tyrano")
+    save_data()
+
+    await ctx.send(f"{ctx.author.display_name} active une météore ! À la fin de chaque BO3, tu gagnes 3 or par monstre détruit par un effet. Si 30 monstres sont détruits en 1 BO3, tu gagnes 1 étoile !")
+
+@bot.command()
+async def retro(ctx):
+    user_id = ctx.author.id
+    ok, msg = can_use_exclusive(user_id, "retro")
+    if not ok:
+        await ctx.send(msg)
+        return
+
+    # Ajouter Dimensional Shifter à l'inventaire
+    inventaires[user_id]["cartes"].append("Dimensional Shifter")
+
+    lock_exclusive(user_id, "retro")
+    save_data()
+
+    await ctx.send(f"{ctx.author.display_name} change de dimension ! **Dimensional Shifter** a été ajoutée à ton inventaire !")
+
+
+@bot.command()
+async def voorhees(ctx):
+    user_id = ctx.author.id
+    ok, msg = can_use_exclusive(user_id, "voorhees")
+    if not ok:
+        await ctx.send(msg)
+        return
+
+    # Vérifier si le joueur est un gagnant de tournoi JVC
+    if user_id in TOURNAMENT_WINNERS_JVC:
+        # Gagnant de tournoi : +1 étoile
+        joueurs[user_id]["etoiles"] += 1
+        lock_exclusive(user_id, "voorhees")
+        save_data()
+        await ctx.send(f"{ctx.author.display_name} a l'Âme d'un Vainqueur ! Tu gagnes **1 étoile** !")
+    else:
+        # Joueur normal : +30 or
+        joueurs[user_id]["or"] += 30
+        lock_exclusive(user_id, "voorhees")
+        save_data()
+        await ctx.send(f"{ctx.author.display_name} gagne **30 or** !")
+
+
+@bot.command()
+async def yop(ctx):
+    user_id = ctx.author.id
+    ok, msg = can_use_exclusive(user_id, "yop")
+    if not ok:
+        await ctx.send(msg)
+        return
+
+    # Activer l'avantage à pile ou face
+    joueurs[user_id]["yop_coin_advantage"] = True
+    
+    joueurs[user_id].setdefault("statuts", [])
+    if "Avantage Yop" not in joueurs[user_id]["statuts"]:
+        joueurs[user_id]["statuts"].append("Avantage Yop")
+
+    lock_exclusive(user_id, "yop")
+    save_data()
+
+    await ctx.send(f"{ctx.author.display_name} truque la pièce ! Tu gagnes la pièce à ton prochain BO3, si ton deck ne contient aucune de ces cartes : Arcana Force XXI - The World, Amorphactor Pain, Herald of Ultimateness !")
+
+
+@bot.command()
 async def fsz(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "fsz")
@@ -937,8 +1123,8 @@ async def fsz(ctx):
         joueurs[user_id]["or"] = joueurs[user_id].get("or", 0) - 10
         await ctx.send("Je te hais. -10 or")
     else:
-        joueurs[user_id]["or"] = joueurs[user_id].get("or", 0) + 10
-        await ctx.send(f"{ctx.author.display_name} a activé Mathmech Circular : **+10 or** !")
+        joueurs[user_id]["or"] = joueurs[user_id].get("or", 0) + 60
+        await ctx.send(f"{ctx.author.display_name} a activé Mathmech Circular : **+60 or** !")
 
     lock_exclusive(user_id, "fsz")
     save_data()
@@ -982,26 +1168,28 @@ async def minerva(ctx):
 
 @bot.command()
 async def zaga(ctx):
+    """COMMANDE MODIFIÉE - ZagaNaga se venge des tournois précédents"""
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "zaga")
     if not ok:
         await ctx.send(msg)
         return
 
-    autres_joueurs = [uid for uid in joueurs.keys() if uid != user_id]
-    if not autres_joueurs:
-        await ctx.send("Il ne s'est rien passé...")
-        return
-
-    victime = random.choice(autres_joueurs)
-    joueurs[victime]["or"] = joueurs[victime].get("or", 0) - 20
-    joueurs[user_id]["or"] = joueurs[user_id].get("or", 0) + 20
+    # Ajouter les archétypes à l'inventaire
+    nouveaux_archetypes = [
+        "Archétype Tenpai",
+        "Archétype Gimmick Puppet", 
+        "Naturia Beast"
+    ]
+    
+    for carte in nouveaux_archetypes:
+        inventaires[user_id]["cartes"].append(carte)
 
     lock_exclusive(user_id, "zaga")
-
-    victime_user = await bot.fetch_user(int(victime))
-    await ctx.send(f"{ctx.author.display_name} a volé **20 or** à ZagaNa... euh plutôt à {victime_user.display_name} !")
     save_data()
+
+    await ctx.send(f"{ctx.author.display_name}, ZagaNaga se venge des tournois précédents ! Les cartes suivantes ont été ajoutées à ton inventaire :\n- Archétype Tenpai\n- Archétype Gimmick Puppet\n- Naturia Beast")
+
 
 
 
