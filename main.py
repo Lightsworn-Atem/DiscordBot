@@ -1412,7 +1412,7 @@ async def reset(ctx):
     global commandes_uniques_globales, derniers_deplacements, bans_temp
     global proteges_minerva, negociateurs
 
-    # Reset complet
+    # Reset complet en mémoire
     joueurs = {}
     positions = {}
     elimines = set()
@@ -1430,9 +1430,46 @@ async def reset(ctx):
     proteges_minerva = {}
     negociateurs = {}
 
-    save_data()
-    await ctx.send("🔥 Toutes les données du tournoi ont été complètement réinitialisées !")
+    # NOUVEAU: Nettoyer explicitement la base de données
+    conn = get_db_connection()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            
+            # Vider toutes les tables
+            tables_to_clear = [
+                "joueurs", "positions", "elimines", "inventaires", 
+                "achats_uniques", "commandes_globales", "derniers_deplacements", 
+                "bans_temp"
+            ]
+            
+            for table in tables_to_clear:
+                cursor.execute(f"DELETE FROM {table}")
+            
+            # Réinitialiser la boutique à l'état initial
+            cursor.execute("""
+                INSERT INTO boutique_data (id, data) VALUES (1, %s)
+                ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data
+            """, (json.dumps(boutique),))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+            
+            await ctx.send("🔥 Toutes les données du tournoi ont été complètement réinitialisées (mémoire + base de données) !")
+            
+        except Exception as e:
+            await ctx.send(f"⚠️ Erreur lors du nettoyage de la base : {e}")
+            if conn:
+                conn.rollback()
+                conn.close()
+            return
+    else:
+        await ctx.send("⚠️ Impossible de se connecter à la base de données pour le nettoyage")
+        return
 
+    # Sauvegarder les données vides (par sécurité)
+    save_data()
 
 @reset.error
 async def reset_error(ctx, error):
