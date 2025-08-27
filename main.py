@@ -1166,6 +1166,240 @@ async def admin_reset_or(ctx, membre: discord.Member):
     save_data()
     await ctx.send(f"⚠️ L’or de {membre.display_name} a été réinitialisé à 0.")
 
+@bot.command()
+@is_owner()
+async def database(ctx, action: str = None, *, params: str = None):
+    """Commande principale pour vérifier différents éléments de la database"""
+    if action is None:
+        embed = discord.Embed(title="Commandes Database disponibles", color=discord.Color.blue())
+        embed.add_field(name="!database stats", value="Statistiques générales de la DB", inline=False)
+        embed.add_field(name="!database joueurs", value="Liste tous les joueurs", inline=False)
+        embed.add_field(name="!database joueur [pseudo]", value="Détails d'un joueur spécifique", inline=False)
+        embed.add_field(name="!database elimines", value="Liste des joueurs éliminés", inline=False)
+        embed.add_field(name="!database positions", value="Positions de tous les joueurs", inline=False)
+        embed.add_field(name="!database inventaires", value="Résumé des inventaires", inline=False)
+        embed.add_field(name="!database boutique", value="État actuel de la boutique", inline=False)
+        embed.add_field(name="!database commandes", value="État des commandes exclusives", inline=False)
+        embed.add_field(name="!database sync", value="Synchronise les données en mémoire avec la DB", inline=False)
+        embed.add_field(name="!database backup", value="Affiche un backup JSON complet", inline=False)
+        await ctx.send(embed=embed)
+        return
+
+    if action == "stats":
+        conn = get_db_connection()
+        if not conn:
+            await ctx.send("❌ Impossible de se connecter à la DB")
+            return
+        
+        try:
+            cursor = conn.cursor()
+            
+            # Compter les entrées dans chaque table
+            tables = ["joueurs", "positions", "elimines", "inventaires", "achats_uniques", 
+                     "commandes_globales", "derniers_deplacements", "boutique_data", "bans_temp"]
+            
+            stats = {}
+            for table in tables:
+                cursor.execute(f"SELECT COUNT(*) FROM {table}")
+                stats[table] = cursor.fetchone()[0]
+            
+            embed = discord.Embed(title="📊 Statistiques Database", color=discord.Color.green())
+            for table, count in stats.items():
+                embed.add_field(name=f"Table {table}", value=f"{count} entrées", inline=True)
+            
+            cursor.close()
+            conn.close()
+            await ctx.send(embed=embed)
+            
+        except Exception as e:
+            await ctx.send(f"❌ Erreur lors du check stats: {e}")
+            if conn:
+                conn.close()
+
+    elif action == "joueurs":
+        if not joueurs:
+            await ctx.send("Aucun joueur en mémoire")
+            return
+        
+        msg = "👥 **Joueurs en mémoire:**\n"
+        for uid, data in list(joueurs.items())[:20]:  # Limiter à 20 pour éviter les messages trop longs
+            try:
+                user = await bot.fetch_user(uid)
+                pseudo = user.display_name
+            except:
+                pseudo = f"ID {uid}"
+            
+            statuts = data.get('statuts', [])
+            flags = []
+            if data.get('minerva_shield'): flags.append("Minerva")
+            if data.get('negociateur'): flags.append("Négociateur")
+            
+            status_str = f"[{','.join(statuts + flags)}]" if statuts or flags else ""
+            msg += f"- {pseudo} {status_str}: ⭐{data['etoiles']} | 💰{data['or']}\n"
+        
+        if len(joueurs) > 20:
+            msg += f"\n... et {len(joueurs) - 20} autres joueurs"
+        
+        await ctx.send(msg)
+
+    elif action == "joueur" and params:
+        # Chercher un joueur par pseudo
+        target_user = None
+        for uid in joueurs.keys():
+            try:
+                user = await bot.fetch_user(uid)
+                if params.lower() in user.display_name.lower():
+                    target_user = user
+                    break
+            except:
+                continue
+        
+        if not target_user:
+            await ctx.send(f"❌ Joueur '{params}' introuvable")
+            return
+        
+        uid = target_user.id
+        data = joueurs[uid]
+        
+        embed = discord.Embed(title=f"👤 Profil de {target_user.display_name}", color=discord.Color.blue())
+        embed.add_field(name="ID", value=str(uid), inline=True)
+        embed.add_field(name="Étoiles", value=data['etoiles'], inline=True)
+        embed.add_field(name="Or", value=data['or'], inline=True)
+        embed.add_field(name="Zone", value=positions.get(uid, "Inconnue"), inline=True)
+        embed.add_field(name="Statuts", value=", ".join(data.get('statuts', [])) or "Aucun", inline=True)
+        
+        flags = []
+        if data.get('minerva_shield'): flags.append("Bouclier Minerva")
+        if data.get('negociateur'): flags.append("Négociateur actif")
+        embed.add_field(name="Flags spéciaux", value=", ".join(flags) or "Aucun", inline=True)
+        
+        # Inventaire
+        inv = inventaires.get(uid, {})
+        cartes = inv.get('cartes', [])
+        if cartes:
+            cartes_str = ", ".join(cartes[:10])  # Limiter à 10 cartes
+            if len(cartes) > 10:
+                cartes_str += f" ... (+{len(cartes)-10} autres)"
+        else:
+            cartes_str = "Vide"
+        embed.add_field(name="Inventaire", value=cartes_str, inline=False)
+        
+        await ctx.send(embed=embed)
+
+    elif action == "elimines":
+        if not elimines:
+            await ctx.send("Aucun joueur éliminé")
+            return
+        
+        msg = "💀 **Joueurs éliminés:**\n"
+        for uid in list(elimines)[:20]:
+            try:
+                user = await bot.fetch_user(uid)
+                msg += f"- {user.display_name} (ID: {uid})\n"
+            except:
+                msg += f"- ID {uid}\n"
+        
+        if len(elimines) > 20:
+            msg += f"\n... et {len(elimines) - 20} autres"
+            
+        await ctx.send(msg)
+
+    elif action == "positions":
+        if not positions:
+            await ctx.send("Aucune position enregistrée")
+            return
+        
+        zones_count = {}
+        for zone in positions.values():
+            zones_count[zone] = zones_count.get(zone, 0) + 1
+        
+        embed = discord.Embed(title="📍 Répartition par zones", color=discord.Color.orange())
+        for zone, count in zones_count.items():
+            embed.add_field(name=zone, value=f"{count} joueurs", inline=True)
+        
+        await ctx.send(embed=embed)
+
+    elif action == "inventaires":
+        if not inventaires:
+            await ctx.send("Aucun inventaire enregistré")
+            return
+        
+        total_cartes = sum(len(inv.get('cartes', [])) for inv in inventaires.values())
+        total_or_inventaires = sum(inv.get('or', 0) for inv in inventaires.values())
+        
+        embed = discord.Embed(title="🎒 Résumé des inventaires", color=discord.Color.purple())
+        embed.add_field(name="Nombre d'inventaires", value=len(inventaires), inline=True)
+        embed.add_field(name="Total cartes stockées", value=total_cartes, inline=True)
+        embed.add_field(name="Or total en inventaires", value=total_or_inventaires, inline=True)
+        
+        await ctx.send(embed=embed)
+
+    elif action == "boutique":
+        packs_dispo = len(boutique.get("packs", {}))
+        
+        msg = f"🏪 **État de la boutique:**\n"
+        msg += f"📦 Packs disponibles: {packs_dispo}\n\n"
+        
+        for shop_name, shop_data in boutique.get("shops", {}).items():
+            cartes_dispo = len(shop_data.get("cartes", {}))
+            msg += f"🛒 {shop_name}: {cartes_dispo} cartes\n"
+        
+        await ctx.send(msg)
+
+    elif action == "commandes":
+        global commandes_uniques_globales
+        
+        embed = discord.Embed(title="⚡ État des commandes exclusives", color=discord.Color.red())
+        
+        exclusives_globales = commandes_uniques_globales.get("exclusives_globales", {})
+        exclusives_joueurs = commandes_uniques_globales.get("exclusives_joueurs", {})
+        
+        # Commandes utilisées
+        utilisees = [cmd for cmd, used in exclusives_globales.items() if used]
+        embed.add_field(name="Commandes utilisées", value=", ".join(utilisees) or "Aucune", inline=False)
+        
+        # Joueurs ayant utilisé une exclusive
+        nb_joueurs_exclusives = len(exclusives_joueurs)
+        embed.add_field(name="Joueurs avec exclusive utilisée", value=str(nb_joueurs_exclusives), inline=True)
+        
+        await ctx.send(embed=embed)
+
+    elif action == "sync":
+        load_data()
+        await ctx.send("🔄 Données synchronisées depuis la base de données")
+
+    elif action == "backup":
+        # Créer un backup complet en JSON
+        backup_data = {
+            "joueurs": joueurs,
+            "positions": {str(k): v for k, v in positions.items()},
+            "elimines": list(elimines),
+            "inventaires": {str(k): v for k, v in inventaires.items()},
+            "achats_uniques": {str(k): v for k, v in achats_uniques.items()},
+            "commandes_uniques_globales": commandes_uniques_globales,
+            "derniers_deplacements": derniers_deplacements,
+            "boutique": boutique,
+            "bans_temp": bans_temp
+        }
+        
+        import json
+        backup_json = json.dumps(backup_data, indent=2, ensure_ascii=False)
+        
+        if len(backup_json) > 1900:  # Limite Discord
+            # Sauver dans un fichier temporaire et l'envoyer
+            with open("backup.json", "w", encoding="utf-8") as f:
+                f.write(backup_json)
+            
+            await ctx.send("📁 Backup trop volumineux, envoyé en fichier:", file=discord.File("backup.json"))
+            
+            import os
+            os.remove("backup.json")
+        else:
+            await ctx.send(f"```json\n{backup_json}\n```")
+
+    else:
+        await ctx.send("❌ Action non reconnue. Utilise `!database` sans paramètre pour voir les options.")
+
 
 # --- RESET ---
 
