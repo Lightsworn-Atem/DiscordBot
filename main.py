@@ -56,6 +56,11 @@ async def check_tournament(ctx):
     return True"""
 
 
+def is_owner():
+    def predicate(ctx):
+        return ctx.author.id == OWNER_ID
+    return commands.check(predicate)
+
 
 # --- DONNÉES ---
 zones = ["Parc", "Docks", "KaibaCorp", "Quartier", "Ruines"]
@@ -253,6 +258,61 @@ def init_database():
         return False
 
 
+@bot.command()
+@is_owner()
+async def migrate_db(ctx):
+    """Ajoute les nouvelles colonnes à la base de données"""
+    conn = get_db_connection()
+    if not conn:
+        await ctx.send("❌ Impossible de se connecter à la DB")
+        return
+        
+    try:
+        cursor = conn.cursor()
+        
+        # Ajouter les nouvelles colonnes une par une
+        nouvelles_colonnes = [
+            ("atem_protection", "BOOLEAN DEFAULT FALSE"),
+            ("skream_omnipresent", "BOOLEAN DEFAULT FALSE"), 
+            ("tyrano_active", "BOOLEAN DEFAULT FALSE"),
+            ("yop_coin_advantage", "BOOLEAN DEFAULT FALSE")
+        ]
+        
+        colonnes_ajoutees = []
+        colonnes_existantes = []
+        
+        for nom_colonne, definition in nouvelles_colonnes:
+            try:
+                cursor.execute(f"ALTER TABLE joueurs ADD COLUMN {nom_colonne} {definition}")
+                colonnes_ajoutees.append(nom_colonne)
+            except Exception as e:
+                if "already exists" in str(e).lower():
+                    colonnes_existantes.append(nom_colonne)
+                else:
+                    await ctx.send(f"❌ Erreur lors de l'ajout de {nom_colonne}: {e}")
+                    conn.rollback()
+                    conn.close()
+                    return
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        message = "✅ Migration terminée !\n"
+        if colonnes_ajoutees:
+            message += f"Colonnes ajoutées: {', '.join(colonnes_ajoutees)}\n"
+        if colonnes_existantes:
+            message += f"Colonnes déjà existantes: {', '.join(colonnes_existantes)}"
+            
+        await ctx.send(message)
+        
+    except Exception as e:
+        await ctx.send(f"❌ Erreur générale de migration: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+
+
 def peut_utiliser_commande_unique(nom: str) -> bool:
     """
     Vérifie si la commande 'nom' a déjà été utilisée globalement (par n'importe qui).
@@ -305,7 +365,7 @@ def lock_exclusive(user_id: int, cmd_name: str):
 
 
 def save_data():
-    """Sauvegarde tous les données en base - VERSION CORRIGÉE"""
+    """Sauvegarde tous les données en base - VERSION CORRIGÉE AVEC GESTION D'ERREUR"""
     conn = get_db_connection()
     if not conn:
         print("❌ Impossible de se connecter à la DB pour sauvegarder")
@@ -314,35 +374,62 @@ def save_data():
     try:
         cursor = conn.cursor()
         
-        # Sauvegarder les joueurs avec nouveaux champs
+        # Vérifier d'abord si les nouvelles colonnes existent
+        cursor.execute("""
+            SELECT column_name FROM information_schema.columns 
+            WHERE table_name = 'joueurs' AND column_name IN ('atem_protection', 'skream_omnipresent', 'tyrano_active', 'yop_coin_advantage')
+        """)
+        colonnes_existantes = [row[0] for row in cursor.fetchall()]
+        
+        # Sauvegarder les joueurs selon les colonnes disponibles
         for user_id, data in joueurs.items():
             try:
-                cursor.execute("""
-                    INSERT INTO joueurs (user_id, or_amount, etoiles, statuts, minerva_shield, negociateur,
-                                       atem_protection, skream_omnipresent, tyrano_active, yop_coin_advantage)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (user_id) DO UPDATE SET
-                        or_amount = EXCLUDED.or_amount,
-                        etoiles = EXCLUDED.etoiles,
-                        statuts = EXCLUDED.statuts,
-                        minerva_shield = EXCLUDED.minerva_shield,
-                        negociateur = EXCLUDED.negociateur,
-                        atem_protection = EXCLUDED.atem_protection,
-                        skream_omnipresent = EXCLUDED.skream_omnipresent,
-                        tyrano_active = EXCLUDED.tyrano_active,
-                        yop_coin_advantage = EXCLUDED.yop_coin_advantage
-                """, (
-                    int(user_id), 
-                    data.get('or', 30), 
-                    data.get('etoiles', 2),
-                    json.dumps(data.get('statuts', [])),
-                    data.get('minerva_shield', False),
-                    data.get('negociateur', False),
-                    data.get('atem_protection', False),
-                    data.get('skream_omnipresent', False),
-                    data.get('tyrano_active', False),
-                    data.get('yop_coin_advantage', False)
-                ))
+                if len(colonnes_existantes) == 4:  # Toutes les nouvelles colonnes existent
+                    cursor.execute("""
+                        INSERT INTO joueurs (user_id, or_amount, etoiles, statuts, minerva_shield, negociateur,
+                                           atem_protection, skream_omnipresent, tyrano_active, yop_coin_advantage)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (user_id) DO UPDATE SET
+                            or_amount = EXCLUDED.or_amount,
+                            etoiles = EXCLUDED.etoiles,
+                            statuts = EXCLUDED.statuts,
+                            minerva_shield = EXCLUDED.minerva_shield,
+                            negociateur = EXCLUDED.negociateur,
+                            atem_protection = EXCLUDED.atem_protection,
+                            skream_omnipresent = EXCLUDED.skream_omnipresent,
+                            tyrano_active = EXCLUDED.tyrano_active,
+                            yop_coin_advantage = EXCLUDED.yop_coin_advantage
+                    """, (
+                        int(user_id), 
+                        data.get('or', 30), 
+                        data.get('etoiles', 2),
+                        json.dumps(data.get('statuts', [])),
+                        data.get('minerva_shield', False),
+                        data.get('negociateur', False),
+                        data.get('atem_protection', False),
+                        data.get('skream_omnipresent', False),
+                        data.get('tyrano_active', False),
+                        data.get('yop_coin_advantage', False)
+                    ))
+                else:  # Utiliser l'ancien format
+                    cursor.execute("""
+                        INSERT INTO joueurs (user_id, or_amount, etoiles, statuts, minerva_shield, negociateur)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (user_id) DO UPDATE SET
+                            or_amount = EXCLUDED.or_amount,
+                            etoiles = EXCLUDED.etoiles,
+                            statuts = EXCLUDED.statuts,
+                            minerva_shield = EXCLUDED.minerva_shield,
+                            negociateur = EXCLUDED.negociateur
+                    """, (
+                        int(user_id), 
+                        data.get('or', 30), 
+                        data.get('etoiles', 2),
+                        json.dumps(data.get('statuts', [])),
+                        data.get('minerva_shield', False),
+                        data.get('negociateur', False)
+                    ))
+                    
             except Exception as e:
                 print(f"Erreur sauvegarde joueur {user_id}: {e}")
                 continue
@@ -466,7 +553,14 @@ def load_data():
     try:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Charger les joueurs avec nouveaux champs
+        # Vérifier quelles colonnes existent
+        cursor.execute("""
+            SELECT column_name FROM information_schema.columns 
+            WHERE table_name = 'joueurs'
+        """)
+        colonnes_disponibles = [row['column_name'] for row in cursor.fetchall()]
+        
+        # Charger les joueurs
         cursor.execute("SELECT * FROM joueurs")
         joueurs.clear()
         for row in cursor.fetchall():
@@ -476,10 +570,10 @@ def load_data():
                 'statuts': row['statuts'] if row['statuts'] else [],
                 'minerva_shield': row['minerva_shield'],
                 'negociateur': row['negociateur'],
-                'atem_protection': row.get('atem_protection', False),
-                'skream_omnipresent': row.get('skream_omnipresent', False),
-                'tyrano_active': row.get('tyrano_active', False),
-                'yop_coin_advantage': row.get('yop_coin_advantage', False)
+                'atem_protection': row.get('atem_protection', False) if 'atem_protection' in colonnes_disponibles else False,
+                'skream_omnipresent': row.get('skream_omnipresent', False) if 'skream_omnipresent' in colonnes_disponibles else False,
+                'tyrano_active': row.get('tyrano_active', False) if 'tyrano_active' in colonnes_disponibles else False,
+                'yop_coin_advantage': row.get('yop_coin_advantage', False) if 'yop_coin_advantage' in colonnes_disponibles else False
             }
         
         # Charger les positions
@@ -549,6 +643,7 @@ def load_data():
         if conn:
             conn.close()
 
+            
 # --- UTILITAIRES ---
 def est_inscrit(user_id):
     return user_id in joueurs
@@ -1316,10 +1411,7 @@ async def on_message(message):
 # --- ADMIN ---
 OWNER_ID = 673606402782265344  # <<< Ton ID Discord
 
-def is_owner():
-    def predicate(ctx):
-        return ctx.author.id == OWNER_ID
-    return commands.check(predicate)
+
 
 @bot.command()
 @is_owner()
