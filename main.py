@@ -1875,5 +1875,7 @@ async def ping(ctx):
 # --- CONFIGURATION DE LA VÉRIFICATION AUTOMATIQUE ---
 URL = "https://discordbot-s7ie.onrender.com"
 
+import time
+time.sleep(10)
 keep_alive()
 bot.run(TOKEN)
