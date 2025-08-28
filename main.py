@@ -2,7 +2,6 @@ import discord
 from discord.ext import commands
 import json
 import os
-from keep_alive import keep_alive
 from discord.ext import tasks
 import random
 import requests
@@ -643,7 +642,7 @@ def load_data():
         if conn:
             conn.close()
 
-            
+
 # --- UTILITAIRES ---
 def est_inscrit(user_id):
     return user_id in joueurs
@@ -1869,22 +1868,12 @@ async def clear(ctx):
 print("Commandes enregistrées :", list(bot.all_commands.keys()))
 
 
-# --- LANCEMENT ---
-keep_alive()
-bot.run(TOKEN)
 @bot.command()
 async def ping(ctx):
     await ctx.send("Pong 🏓")
-URL = "https://e452861f-0ced-458c-b285-a009c7261654-00-orp7av1otz2y.picard.replit.dev/"
-# Vérification automatique toutes les 5 minutes
-@tasks.loop(minutes=5)
-async def check_server():
-    try:
-        r = requests.get(URL, timeout=5)
-        if r.status_code == 200:
-            print("✅ Le serveur Flask répond bien.")
-        else:
-            print(f"⚠️ Problème : code {r.status_code} reçu de Flask")
-    except Exception as e:
-        print(f"❌ Impossible de joindre le serveur Flask : {e}")
+
+# --- CONFIGURATION DE LA VÉRIFICATION AUTOMATIQUE ---
+URL = "https://discordbot-s7ie.onrender.com"
+
+keep_alive()
 bot.run(TOKEN)
