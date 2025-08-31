@@ -10,6 +10,8 @@ from psycopg2.extras import RealDictCursor
 from urllib.parse import urlparse
 from keep_alive import keep_alive
 import copy
+import asyncio
+from datetime import datetime, timedelta
 
 
 # --- CONFIG ---
@@ -142,6 +144,192 @@ achats_uniques = {}  # {user_id: {item: True}}
 commandes_utilisees = {}  # {user_id: {"fsz": True, "fman": True, ...}}
 commandes_uniques_globales = {}
 derniers_deplacements = {}
+mirvu_bot_etoiles = 0  # Étoiles que Mathmech Circular possède
+joueurs_adam_reserves = {}  
+PHASE_INSCRIPTION = 1
+PHASE_TOURNOI = 2 
+PHASE_QUALIFIES = 3
+
+# Variable pour tracker la phase actuelle
+phase_actuelle = PHASE_INSCRIPTION
+
+SEUIL_QUALIFICATION = 10
+
+# --- FONCTIONS UTILITAIRES POUR LES PHASES ---
+
+def get_phase_name(phase):
+    """Retourne le nom lisible de la phase"""
+    if phase == PHASE_INSCRIPTION:
+        return "Inscription"
+    elif phase == PHASE_TOURNOI:
+        return "Tournoi"
+    elif phase == PHASE_QUALIFIES:
+        return "Qualifiés"
+    return "Inconnue"
+
+def compter_qualifies():
+    """Compte le nombre de joueurs avec 10+ étoiles"""
+    return len([uid for uid, stats in joueurs.items() if stats.get("etoiles", 0) >= SEUIL_QUALIFICATION and uid != 999999999999999999])
+
+def verifier_phase_qualifies():
+    """Vérifie si on doit passer en phase qualifiés"""
+    global phase_actuelle
+    if phase_actuelle == PHASE_TOURNOI and compter_qualifies() >= 4:
+        phase_actuelle = PHASE_QUALIFIES
+        return True
+    return False
+
+async def annoncer_changement_phase(channel, nouvelle_phase):
+    """Annonce le changement de phase dans le salon"""
+    if nouvelle_phase == PHASE_TOURNOI:
+        await channel.send("🚀 **PHASE DE TOURNOI ACTIVÉE !**\nLes inscriptions sont fermées, que les duels commencent !")
+    elif nouvelle_phase == PHASE_QUALIFIES:
+        await channel.send("🏆 **PHASE DES QUALIFIÉS ATTEINTE !**\n4 joueurs ont atteint 10 étoiles ! Place aux phases finales !")
+
+def require_phase(*phases_autorisees):
+    """Décorateur pour limiter les commandes à certaines phases"""
+    def decorator(func):
+        async def wrapper(ctx, *args, **kwargs):
+            if phase_actuelle not in phases_autorisees:
+                phase_nom = get_phase_name(phase_actuelle)
+                phases_noms = [get_phase_name(p) for p in phases_autorisees]
+                await ctx.send(f"❌ Cette commande n'est disponible qu'en phase : {', '.join(phases_noms)}. Phase actuelle : {phase_nom}")
+                return
+            return await func(ctx, *args, **kwargs)
+        wrapper.__name__ = func.__name__
+        return wrapper
+    return decorator
+
+@bot.command()
+@is_owner()
+async def phase(ctx, nouvelle_phase: int = None):
+    """Affiche ou change la phase actuelle du tournoi (admin only)"""
+    global phase_actuelle
+    
+    if nouvelle_phase is None:
+        qualifies = compter_qualifies()
+        embed = discord.Embed(title="📊 État du tournoi", color=discord.Color.blue())
+        embed.add_field(name="Phase actuelle", value=f"{phase_actuelle} - {get_phase_name(phase_actuelle)}", inline=False)
+        embed.add_field(name="Joueurs inscrits", value=len(joueurs), inline=True)
+        embed.add_field(name="Joueurs éliminés", value=len(elimines), inline=True)
+        embed.add_field(name="Joueurs qualifiés", value=f"{qualifies}/4", inline=True)
+        await ctx.send(embed=embed)
+        return
+    
+    if nouvelle_phase not in [PHASE_INSCRIPTION, PHASE_TOURNOI, PHASE_QUALIFIES]:
+        await ctx.send("❌ Phase invalide. Utilisez 1 (Inscription), 2 (Tournoi), ou 3 (Qualifiés).")
+        return
+    
+    ancienne_phase = phase_actuelle
+    phase_actuelle = nouvelle_phase
+    save_data()
+    
+    await ctx.send(f"✅ Phase changée de **{get_phase_name(ancienne_phase)}** vers **{get_phase_name(nouvelle_phase)}**")
+    
+    if nouvelle_phase == PHASE_TOURNOI:
+        await annoncer_changement_phase(ctx.channel, PHASE_TOURNOI)
+    elif nouvelle_phase == PHASE_QUALIFIES:
+        await annoncer_changement_phase(ctx.channel, PHASE_QUALIFIES)
+
+@bot.command()
+@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
+async def qualifies(ctx):
+    """Affiche la liste des joueurs qualifiés (10+ étoiles)"""
+    joueurs_qualifies = []
+    
+    for uid, stats in joueurs.items():
+        if stats.get("etoiles", 0) >= SEUIL_QUALIFICATION and uid != 999999999999999999:
+            try:
+                user = await bot.fetch_user(uid)
+                joueurs_qualifies.append((user.display_name, stats["etoiles"]))
+            except:
+                joueurs_qualifies.append((f"ID {uid}", stats["etoiles"]))
+    
+    if not joueurs_qualifies:
+        await ctx.send("🚫 Aucun joueur qualifié pour le moment (10+ étoiles requis).")
+        return
+    
+    # Trier par nombre d'étoiles décroissant
+    joueurs_qualifies.sort(key=lambda x: x[1], reverse=True)
+    
+    embed = discord.Embed(title="🏆 Joueurs qualifiés", color=discord.Color.gold())
+    embed.description = f"Joueurs avec {SEUIL_QUALIFICATION}+ étoiles :"
+    
+    for i, (nom, etoiles) in enumerate(joueurs_qualifies[:10], 1):
+        embed.add_field(name=f"{i}. {nom}", value=f"⭐ {etoiles} étoiles", inline=False)
+    
+    embed.set_footer(text=f"{len(joueurs_qualifies)}/4 qualifiés")
+    await ctx.send(embed=embed)
+
+
+@bot.command()
+async def statut_tournoi(ctx):
+    """Affiche l'état général du tournoi"""
+    qualifies = compter_qualifies()
+    
+    embed = discord.Embed(title="📊 État du tournoi", color=discord.Color.blue())
+    embed.add_field(name="Phase actuelle", value=get_phase_name(phase_actuelle), inline=False)
+    embed.add_field(name="Joueurs inscrits", value=len(joueurs), inline=True)
+    embed.add_field(name="Joueurs éliminés", value=len(elimines), inline=True)
+    embed.add_field(name="Joueurs qualifiés", value=f"{qualifies}/4", inline=True)
+    
+    if phase_actuelle == PHASE_INSCRIPTION:
+        embed.add_field(name="Action possible", value="Utilisez `!inscrire` pour rejoindre", inline=False)
+    elif phase_actuelle == PHASE_TOURNOI:
+        embed.add_field(name="Action possible", value="Les duels sont ouverts !", inline=False)
+    elif phase_actuelle == PHASE_QUALIFIES:
+        embed.add_field(name="Action possible", value="Phase finale en cours", inline=False)
+    
+    await ctx.send(embed=embed)
+    
+
+@tasks.loop(hours=24)
+async def mirvu_daily_task():
+    """Distribue une étoile de Mathmech Circular chaque jour à 6h"""
+    global mirvu_bot_etoiles
+    
+    # Vérifier qu'il est 6h du matin
+    now = datetime.now()
+    if now.hour != 6:
+        return
+    
+    if mirvu_bot_etoiles <= 0:
+        mirvu_daily_task.stop()
+        return
+    
+    # Trouver un joueur au hasard (excluant Mathmech Circular)
+    joueurs_eligibles = [uid for uid in joueurs.keys() if uid != 999999999999999999]
+    
+    if not joueurs_eligibles:
+        return
+    
+    import random
+    lucky_player_id = random.choice(joueurs_eligibles)
+    
+    try:
+        lucky_player = await bot.fetch_user(lucky_player_id)
+        
+        # Transférer une étoile
+        joueurs[lucky_player_id]["etoiles"] += 1
+        mirvu_bot_etoiles -= 1
+        joueurs[999999999999999999]["etoiles"] = mirvu_bot_etoiles
+        
+        # Annoncer dans le salon principal
+        channel = discord.utils.get(bot.get_all_channels(), name="conversation-tournois")
+        if channel:
+            await channel.send(f"🌟 **Distribution quotidienne !** {lucky_player.display_name} reçoit 1 étoile de Mathmech Circular ! (Reste : {mirvu_bot_etoiles})")
+        
+        save_data()
+        
+        # Arrêter si plus d'étoiles
+        if mirvu_bot_etoiles <= 0:
+            if channel:
+                await channel.send("🍽️ Mathmech Circular a fini de manger toutes ses étoiles !")
+            mirvu_daily_task.stop()
+            
+    except Exception as e:
+        print(f"Erreur dans mirvu_daily_task: {e}")
+
 
 # --- CONNEXION BASE DE DONNÉES ---
 def get_db_connection():
@@ -527,6 +715,39 @@ def save_data():
                 """, (str(joueur), str(deck)))
         except Exception as e:
             print(f"Erreur sauvegarde bans temporaires: {e}")
+
+            # Dans save_data(), après la sauvegarde des bans temporaires :
+
+        # Sauvegarder les données Mirvu
+        try:
+            cursor.execute("""
+                INSERT INTO commandes_globales (command_name, used, user_id)
+                VALUES ('mirvu_bot_etoiles', %s, %s)
+                ON CONFLICT (command_name) DO UPDATE SET 
+                    used = EXCLUDED.used,
+                    user_id = EXCLUDED.user_id
+            """, (bool(mirvu_bot_etoiles > 0), mirvu_bot_etoiles))
+        except Exception as e:
+            print(f"Erreur sauvegarde données Mirvu: {e}")
+
+        # Sauvegarder les réserves Adam
+        try:
+            cursor.execute("DELETE FROM commandes_globales WHERE command_name LIKE 'adam_reserve_%'")
+            for user_id in joueurs_adam_reserves.keys():
+                cursor.execute("""
+                    INSERT INTO commandes_globales (command_name, used, user_id)
+                    VALUES (%s, %s, %s)
+                """, (f"adam_reserve_{user_id}", True, int(user_id)))
+        except Exception as e:
+            print(f"Erreur sauvegarde réserves Adam: {e}")
+
+        cursor.execute("""
+            INSERT INTO commandes_globales (command_name, used, user_id)
+            VALUES ('phase_actuelle', %s, %s)
+            ON CONFLICT (command_name) DO UPDATE SET 
+                used = EXCLUDED.used,
+                user_id = EXCLUDED.user_id
+        """, (True, phase_actuelle))
         
         conn.commit()
         cursor.close()
@@ -632,6 +853,30 @@ def load_data():
         bans_temp.clear()
         for row in cursor.fetchall():
             bans_temp[row['joueur']] = row['deck']
+
+        # Dans load_data(), après le chargement des commandes globales :
+        # Charger les données Mirvu et Adam
+        cursor.execute("SELECT * FROM commandes_globales WHERE command_name IN ('mirvu_bot_etoiles') OR command_name LIKE 'adam_reserve_%'")
+        for row in cursor.fetchall():
+            if row['command_name'] == 'mirvu_bot_etoiles':
+                mirvu_bot_etoiles = row['user_id'] if row['user_id'] else 0
+                if mirvu_bot_etoiles > 0 and not mirvu_daily_task.is_running():
+                    mirvu_daily_task.start()
+            elif row['command_name'].startswith('adam_reserve_'):
+                user_id = int(row['command_name'].replace('adam_reserve_', ''))
+                joueurs_adam_reserves[user_id] = True
+
+        
+        try:
+            cursor.execute("SELECT user_id FROM commandes_globales WHERE command_name = 'phase_actuelle'")
+            row = cursor.fetchone()
+            if row:
+                phase_actuelle = row['user_id']  # On stocke la phase dans user_id
+            else:
+                phase_actuelle = PHASE_INSCRIPTION  # Valeur par défaut
+        except Exception as e:
+            print(f"Erreur chargement phase: {e}")
+            phase_actuelle = PHASE_INSCRIPTION
         
         cursor.close()
         conn.close()
@@ -681,6 +926,7 @@ async def on_ready():
 
 # --- INSCRIPTION ---
 @bot.command()
+@require_phase(PHASE_INSCRIPTION)
 async def inscrire(ctx):
     user = ctx.author
     if est_inscrit(user.id):
@@ -786,6 +1032,7 @@ async def ou(ctx, membre: discord.Member = None):
 
 # --- DUEL ---
 @bot.command()
+@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def duel(ctx, gagnant: discord.Member, perdant: discord.Member, etoiles: int, or_: int):
     """COMMANDE MODIFIÉE - Duel avec gestion des nouveaux effets"""
     if not est_inscrit(gagnant.id) or not est_inscrit(perdant.id):
@@ -869,12 +1116,16 @@ async def duel(ctx, gagnant: discord.Member, perdant: discord.Member, etoiles: i
             # Élimination normale
             await ctx.send(f":skull: **{perdant.display_name} est éliminé du tournoi !**")
             elimines.add(perdant.id)
+            await activer_effet_adam(perdant.id, ctx.channel)
             joueurs.pop(perdant.id, None)
             positions.pop(perdant.id, None)
             inventaires.pop(perdant.id, None)
 
     derniers_deplacements[str(gagnant.id)] = False
     derniers_deplacements[str(perdant.id)] = False
+
+    if verifier_phase_qualifies():
+        await annoncer_changement_phase(ctx.channel, PHASE_QUALIFIES)
 
     save_data()
 
@@ -1354,7 +1605,94 @@ async def roux(ctx):
 
     await ctx.send(f"{user.display_name} gagne **1 étoile** !")
 
-
+@bot.command()
+async def mirvu(ctx):
+    """Commande Mirvu avec le scénario complet"""
+    global mirvu_bot_etoiles
+    
+    user_id = ctx.author.id
+    ok, msg = can_use_exclusive(user_id, "mirvu")
+    if not ok:
+        await ctx.send(msg)
+        return
+    
+    if not est_inscrit(user_id):
+        await ctx.send("⚠️ Tu dois être inscrit pour utiliser cette commande.")
+        return
+    
+    participant = ctx.author.display_name
+    etoiles_actuelles = joueurs[user_id]["etoiles"]
+    etoiles_gagnees = 10 - etoiles_actuelles  # Calcul selon la nouvelle règle
+    
+    # Séquence de messages avec délais
+    await ctx.send("Vous gagnez…")
+    await asyncio.sleep(2)
+    
+    await ctx.send("Hmmmm")
+    await asyncio.sleep(2)
+    
+    await ctx.send("Vous gagneeeeeeez…..")
+    await asyncio.sleep(3)
+    
+    await ctx.send("J'ai plus grand chose à offrir…")
+    await asyncio.sleep(2)
+    
+    await ctx.send("OH JE SAIS")
+    await asyncio.sleep(2)
+    
+    await ctx.send("Vous gagnez…")
+    await asyncio.sleep(3)
+    
+    await ctx.send("… le tournoi !")
+    await asyncio.sleep(1)
+    
+    await ctx.send(f"🏆 **{participant}** gagne {etoiles_gagnees} étoiles !")
+    await asyncio.sleep(1)
+    
+    await ctx.send(f"🎉 **FÉLICITATIONS À {participant.upper()} POUR SA VICTOIRE AU TOURNOI !** 🎉")
+    
+    # Attendre 30 secondes
+    await asyncio.sleep(30)
+    
+    await ctx.send("Ah-")
+    await asyncio.sleep(2)
+    
+    await ctx.send("On me dit que je peux pas faire ça")
+    await asyncio.sleep(2)
+    
+    await ctx.send("Je vais donc reprendre ces étoiles")
+    await asyncio.sleep(1)
+    
+    await ctx.send(f"📉 **{participant}** perd {etoiles_gagnees} étoiles")
+    await asyncio.sleep(1)
+    
+    await ctx.send(f"❌ {participant} ne remporte plus le tournoi")
+    await asyncio.sleep(2)
+    
+    await ctx.send("Mais que vais-je faire de ces étoiles…")
+    await asyncio.sleep(3)
+    
+    await ctx.send("Je vais les manger !")
+    await asyncio.sleep(2)
+    
+    # Mathmech Circular s'inscrit avec les étoiles
+    mirvu_bot_etoiles = etoiles_gagnees
+    mathmech_id = 999999999999999999  # ID fictif pour Mathmech Circular
+    
+    # L'ajouter comme "joueur" spécial
+    joueurs[mathmech_id] = {"or": 0, "etoiles": mirvu_bot_etoiles}
+    positions[mathmech_id] = "KaibaCorp"
+    inventaires[mathmech_id] = {"or": 0, "cartes": []}
+    
+    await ctx.send(f"🤖 **@Mathmech Circular** s'inscrit au tournoi avec {mirvu_bot_etoiles} étoiles et 0 or")
+    await ctx.send("⏰ *Le bot donnera une étoile à un joueur au hasard chaque jour à 6h du matin jusqu'à ce qu'il n'en ait plus*")
+    
+    # Démarrer la tâche quotidienne si pas déjà active
+    if not mirvu_daily_task.is_running():
+        mirvu_daily_task.start()
+    
+    lock_exclusive(user_id, "mirvu")
+    save_data()
 
 @bot.command()
 async def shaman(ctx):
@@ -1371,6 +1709,72 @@ async def shaman(ctx):
         await ctx.send("Un vent étrange souffle...")
     except:
         await ctx.send("Impossible de t’envoyer un MP. Veuillez contacter ATEM.")
+
+
+@bot.command()
+async def adam(ctx):
+    """Permet à un joueur encore en course de réserver l'effet Adam pour son élimination future"""
+    user_id = ctx.author.id
+    
+    # Vérifier que le joueur est encore en course
+    if not est_inscrit(user_id):
+        await ctx.send("⚠️ Tu dois être inscrit pour utiliser cette commande.")
+        return
+    
+    if user_id in elimines:
+        await ctx.send("⚠️ Tu es déjà éliminé, tu ne peux plus utiliser cette commande.")
+        return
+    
+    ok, msg = can_use_exclusive(user_id, "adam")
+    if not ok:
+        await ctx.send(msg)
+        return
+    
+    # Réserver l'effet Adam pour ce joueur
+    joueurs_adam_reserves[user_id] = True
+    
+    await ctx.send(f"🔮 **{ctx.author.display_name}**, Quand tu seras éliminé, tu rejoindras automatiquement un joueur encore en course.")
+    
+    lock_exclusive(user_id, "adam")
+    save_data()
+
+async def activer_effet_adam(user_id, channel):
+    """Active l'effet Adam si le joueur éliminé l'avait réservé"""
+    if user_id not in joueurs_adam_reserves:
+        return False
+    
+    # Trouver un joueur au hasard encore en course
+    joueurs_actifs = [uid for uid in joueurs.keys() if uid not in elimines and uid != 999999999999999999 and uid != user_id]
+    
+    if not joueurs_actifs:
+        await channel.send("⚠️ Aucun joueur actif disponible pour l'effet Adam.")
+        return False
+    
+    import random
+    hote_id = random.choice(joueurs_actifs)
+    
+    try:
+        user = await bot.fetch_user(user_id)
+        hote_user = await bot.fetch_user(hote_id)
+        participant = user.display_name
+        hote_name = hote_user.display_name
+        
+        # Le nom devient "participant rejoint + hôte"
+        nouveau_nom = f"{participant} rejoint {hote_name}"
+        
+        await channel.send(f"🔮 **Effet Adam activé !**")
+        await channel.send(f"🤝 **{participant}** rejoint **{hote_name}** pour le reste du tournoi !")
+        await channel.send(f"📝 L'équipe s'appelle maintenant : **{nouveau_nom}**")
+        await channel.send(f"ℹ️ {hote_name} décide lequel des deux joueurs dispute les BO3.")
+        
+        # Retirer de la liste des réserves Adam
+        del joueurs_adam_reserves[user_id]
+        save_data()
+        return True
+        
+    except Exception as e:
+        await channel.send(f"⚠️ Erreur lors de l'activation de l'effet Adam : {e}")
+        return False
 
 
 @bot.event
@@ -1444,6 +1848,181 @@ async def admin_reset_or(ctx, membre: discord.Member):
     joueurs[membre.id]["or"] = 0
     save_data()
     await ctx.send(f"⚠️ L’or de {membre.display_name} a été réinitialisé à 0.")
+
+
+@bot.command()
+@is_owner()
+async def admin_eliminer(ctx, membre: discord.Member):
+    """Élimine un joueur du tournoi (admin only)"""
+    if not est_inscrit(membre.id):
+        await ctx.send(f"⚠️ {membre.display_name} n'est pas inscrit.")
+        return
+    
+    if membre.id in elimines:
+        await ctx.send(f"⚠️ {membre.display_name} est déjà éliminé.")
+        return
+    
+    # Éliminer le joueur
+    elimines.add(membre.id)
+    joueurs.pop(membre.id, None)
+    positions.pop(membre.id, None)
+    inventaires.pop(membre.id, None)
+    
+    save_data()
+    await ctx.send(f"☠️ **{membre.display_name}** a été éliminé du tournoi par l'administration.")
+
+@bot.command()
+@is_owner()
+async def admin_restaurer(ctx, membre: discord.Member, etoiles: int = 2, or_amount: int = 30):
+    """Restaure un joueur éliminé dans le tournoi (admin only)"""
+    if est_inscrit(membre.id):
+        await ctx.send(f"⚠️ {membre.display_name} est déjà inscrit.")
+        return
+    
+    # Retirer de la liste des éliminés
+    elimines.discard(membre.id)
+    
+    # Réinscrire le joueur
+    joueurs[membre.id] = {"or": or_amount, "etoiles": etoiles}
+    positions[membre.id] = "KaibaCorp"
+    inventaires[membre.id] = {"or": or_amount, "cartes": []}
+    
+    save_data()
+    await ctx.send(f"✅ **{membre.display_name}** a été restauré dans le tournoi avec ⭐{etoiles} étoiles et 💰{or_amount} or.")
+
+@bot.command()
+@is_owner()
+async def admin_teleporter(ctx, membre: discord.Member, zone: str):
+    """Téléporte un joueur dans une zone spécifique (admin only)"""
+    if not est_inscrit(membre.id):
+        await ctx.send(f"⚠️ {membre.display_name} n'est pas inscrit.")
+        return
+    
+    if zone not in zones:
+        await ctx.send(f"⚠️ Zone invalide. Zones disponibles : {', '.join(zones)}")
+        return
+    
+    positions[membre.id] = zone
+    save_data()
+    await ctx.send(f"🚀 **{membre.display_name}** a été téléporté à **{zone}**.")
+
+@bot.command()
+@is_owner()
+async def admin_statut(ctx, membre: discord.Member, *, statut: str):
+    """Ajoute un statut visible à un joueur (admin only)"""
+    if not est_inscrit(membre.id):
+        await ctx.send(f"⚠️ {membre.display_name} n'est pas inscrit.")
+        return
+    
+    joueurs[membre.id].setdefault("statuts", [])
+    if statut not in joueurs[membre.id]["statuts"]:
+        joueurs[membre.id]["statuts"].append(statut)
+        save_data()
+        await ctx.send(f"✅ Statut **{statut}** ajouté à {membre.display_name}.")
+    else:
+        await ctx.send(f"⚠️ {membre.display_name} a déjà le statut **{statut}**.")
+
+@bot.command()
+@is_owner()
+async def admin_retirer_statut(ctx, membre: discord.Member, *, statut: str):
+    """Retire un statut d'un joueur (admin only)"""
+    if not est_inscrit(membre.id):
+        await ctx.send(f"⚠️ {membre.display_name} n'est pas inscrit.")
+        return
+    
+    statuts = joueurs[membre.id].get("statuts", [])
+    if statut in statuts:
+        statuts.remove(statut)
+        save_data()
+        await ctx.send(f"✅ Statut **{statut}** retiré de {membre.display_name}.")
+    else:
+        await ctx.send(f"⚠️ {membre.display_name} n'a pas le statut **{statut}**.")
+
+@bot.command()
+@is_owner()
+async def admin_boutique_reset(ctx):
+    """Remet la boutique à son état initial (admin only)"""
+    global boutique
+    import copy
+    boutique = copy.deepcopy(BOUTIQUE_INITIALE)
+    save_data()
+    await ctx.send("🔄 La boutique a été remise à son état initial.")
+
+@bot.command()
+@is_owner()
+async def admin_forcer_duel(ctx, gagnant: discord.Member, perdant: discord.Member, etoiles: int, or_amount: int):
+    """Force un duel sans vérifications de zone (admin only)"""
+    if not est_inscrit(gagnant.id) or not est_inscrit(perdant.id):
+        await ctx.send("⚠️ Les deux joueurs doivent être inscrits.")
+        return
+    
+    # Transférer directement sans vérifications
+    if joueurs[perdant.id]["etoiles"] < etoiles:
+        etoiles = joueurs[perdant.id]["etoiles"]  # Prendre le max possible
+    
+    if joueurs[perdant.id]["or"] < or_amount:
+        or_amount = joueurs[perdant.id]["or"]  # Prendre le max possible
+    
+    joueurs[perdant.id]["etoiles"] -= etoiles
+    joueurs[gagnant.id]["etoiles"] += etoiles
+    joueurs[gagnant.id]["or"] += or_amount
+    joueurs[perdant.id]["or"] -= or_amount
+    
+    await ctx.send(
+        f"⚔️ **Duel forcé par l'administration !**\n"
+        f"🏆 {gagnant.display_name} gagne ⭐{etoiles} étoile(s) et 💰{or_amount} or.\n"
+        f"💀 {perdant.display_name} perd ⭐{etoiles} étoile(s) et 💰{or_amount} or."
+    )
+    
+    # Vérification élimination
+    if joueurs[perdant.id]["etoiles"] <= 0:
+        await ctx.send(f"☠️ **{perdant.display_name} est éliminé du tournoi !**")
+        elimines.add(perdant.id)
+        joueurs.pop(perdant.id, None)
+        positions.pop(perdant.id, None)
+        inventaires.pop(perdant.id, None)
+    
+    save_data()
+
+@bot.command()
+@is_owner()
+async def admin_mirvu_stop(ctx):
+    """Arrête la distribution quotidienne de Mathmech Circular (admin only)"""
+    global mirvu_bot_etoiles
+    
+    if mirvu_daily_task.is_running():
+        mirvu_daily_task.stop()
+        await ctx.send("⏹️ Distribution quotidienne de Mathmech Circular arrêtée.")
+    else:
+        await ctx.send("⚠️ La distribution quotidienne n'était pas active.")
+    
+    # Optionnel : retirer Mathmech Circular du tournoi
+    mathmech_id = 999999999999999999
+    if mathmech_id in joueurs:
+        mirvu_bot_etoiles = 0
+        joueurs.pop(mathmech_id, None)
+        positions.pop(mathmech_id, None)
+        inventaires.pop(mathmech_id, None)
+        await ctx.send("🤖 Mathmech Circular a été retiré du tournoi.")
+        save_data()
+
+@bot.command()
+@is_owner()
+async def admin_adam_list(ctx):
+    """Affiche la liste des joueurs ayant réservé l'effet Adam (admin only)"""
+    if not joueurs_adam_reserves:
+        await ctx.send("Aucun joueur n'a réservé l'effet Adam.")
+        return
+    
+    msg = "🔮 **Joueurs ayant réservé l'effet Adam :**\n"
+    for user_id in joueurs_adam_reserves.keys():
+        try:
+            user = await bot.fetch_user(user_id)
+            msg += f"- {user.display_name}\n"
+        except:
+            msg += f"- ID {user_id}\n"
+    
+    await ctx.send(msg)
 
 @bot.command()
 @is_owner()
@@ -1708,6 +2287,16 @@ async def reset(ctx):
     # Si tu as des statuts spéciaux comme Minerva, Boutique_CM, etc.
     proteges_minerva = {}
     negociateurs = {}
+
+    # Dans la fonction reset(), ajoutez :
+    global mirvu_bot_etoiles, joueurs_adam_reserves
+
+    mirvu_bot_etoiles = 0
+    joueurs_adam_reserves = {}
+
+    # Arrêter la tâche Mirvu si elle tourne
+    if mirvu_daily_task.is_running():
+        mirvu_daily_task.stop()
 
     # NOUVEAU: Nettoyer explicitement la base de données
     conn = get_db_connection()
