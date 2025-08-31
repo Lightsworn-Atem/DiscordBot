@@ -118,7 +118,7 @@ BOUTIQUE_INITIALE = {
                 "Mathmech Circular": 70,
                 "Sillva, Warlord of Dark World": 70,
                 "Superheavy Samurai Wakaushi": 70,
-                "Amorphactor Pain": 70,
+                "Moulinglacia the Elemental Lord": 90,
                 "Masked HERO Dark Law": 70,
                 "Isolde, Two Tales of the Noble Knights": 70,
                 "Trishula, Dragon of the Ice Barrier": 70
@@ -1216,7 +1216,7 @@ boutique = {
                 "Mathmech Circular": 70,
                 "Sillva, Warlord of Dark World": 70,
                 "Superheavy Samurai Wakaushi": 70,
-                "Amorphactor Pain": 70,
+                "Moulinglacia the Elemental Lord": 90,
                 "Masked HERO Dark Law": 70,
                 "Isolde, Two Tales of the Noble Knights": 70,
                 "Trishula, Dragon of the Ice Barrier": 70
@@ -1490,7 +1490,7 @@ async def yop(ctx):
     lock_exclusive(user_id, "yop")
     save_data()
 
-    await ctx.send(f"{ctx.author.display_name} truque la pièce ! Tu gagnes la pièce à ton prochain BO3, si ton deck ne contient aucune de ces cartes : Arcana Force XXI - The World, Amorphactor Pain, Herald of Ultimateness !")
+    await ctx.send(f"{ctx.author.display_name} truque la pièce ! Tu gagnes la pièce à ton prochain BO3, si ton deck ne contient aucune de ces cartes : Arcana Force XXI - The World, Moulinglacia the Elemental Lord, Herald of Ultimateness !")
 
 
 @bot.command()
