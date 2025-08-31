@@ -521,7 +521,9 @@ TOURNAMENT_WINNERS_JVC = [
     536681221481037824,
     383073877820964864,
     699694209950548069,
-    884822218566152222
+    884822218566152222,
+    496026713730318336,
+    1038417018589822976
 ]
 
 def can_use_exclusive(user_id: int, cmd_name: str):
@@ -1264,6 +1266,7 @@ async def boutique_cmd(ctx, *, nom: str = None):
             await ctx.send("❌ Pack ou shop introuvable.")
 
 @bot.command()
+@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def acheter(ctx, *, nom: str):
     """Permet d'acheter un pack complet ou une carte d'un shop"""
     user = ctx.author
@@ -1362,6 +1365,7 @@ async def inventaire(ctx, membre: discord.Member = None):
 # --- COMMANDES SECRÈTES --- 
 
 @bot.command()
+@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def atem(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "atem")
@@ -1383,6 +1387,7 @@ async def atem(ctx):
 
 
 @bot.command()
+@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def skream(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "skream")
@@ -1404,6 +1409,7 @@ async def skream(ctx):
 
 
 @bot.command()
+@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def tyrano(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "tyrano")
@@ -1424,6 +1430,7 @@ async def tyrano(ctx):
     await ctx.send(f"{ctx.author.display_name} active une météore ! À la fin de chaque BO3, tu gagnes 3 or par monstre détruit par un effet. Si 30 monstres sont détruits en 1 BO3, tu gagnes 1 étoile !")
 
 @bot.command()
+@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def retro(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "retro")
@@ -1441,6 +1448,7 @@ async def retro(ctx):
 
 
 @bot.command()
+@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def voorhees(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "voorhees")
@@ -1464,6 +1472,7 @@ async def voorhees(ctx):
 
 
 @bot.command()
+@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def yop(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "yop")
@@ -1485,6 +1494,7 @@ async def yop(ctx):
 
 
 @bot.command()
+@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def fsz(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "fsz")
@@ -1504,6 +1514,7 @@ async def fsz(ctx):
 
 
 @bot.command()
+@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def fman(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "fman")
@@ -1520,6 +1531,7 @@ async def fman(ctx):
 
 
 @bot.command()
+@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def minerva(ctx):
     user = ctx.author
     if not est_inscrit(user.id):
@@ -1540,6 +1552,7 @@ async def minerva(ctx):
 
 
 @bot.command()
+@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def zaga(ctx):
     """COMMANDE MODIFIÉE - ZagaNaga se venge des tournois précédents"""
     user_id = ctx.author.id
@@ -1567,6 +1580,7 @@ async def zaga(ctx):
 
 
 @bot.command()
+@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def fayth(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "fayth")
@@ -1588,6 +1602,7 @@ async def fayth(ctx):
 
 
 @bot.command()
+@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def capitaine(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "capitaine")
@@ -1604,6 +1619,7 @@ async def capitaine(ctx):
     await ctx.send(f"{ctx.author.display_name} est traité comme roux pour le reste du tournoi !")
 
 @bot.command()
+@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def roux(ctx):
     """Commande secrète : uniquement pour les joueurs roux."""
     user = ctx.author
@@ -1634,6 +1650,7 @@ async def roux(ctx):
     await ctx.send(f"{user.display_name} gagne **1 étoile** !")
 
 @bot.command()
+@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def mirvu(ctx):
     """Commande Mirvu avec le scénario complet"""
     global mirvu_bot_etoiles
@@ -1723,6 +1740,7 @@ async def mirvu(ctx):
     save_data()
 
 @bot.command()
+@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def shaman(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "shaman")
@@ -1740,6 +1758,7 @@ async def shaman(ctx):
 
 
 @bot.command()
+@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def adam(ctx):
     """Permet à un joueur encore en course de réserver l'effet Adam pour son élimination future"""
     user_id = ctx.author.id
