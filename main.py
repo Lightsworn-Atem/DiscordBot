@@ -1030,61 +1030,10 @@ async def ou(ctx, membre: discord.Member = None):
     await ctx.send(f"📍 {membre.display_name} est actuellement à **{zone}**.")
 
 
+# --- DUEL ---
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
-async def duel(ctx, gagnant, perdant, etoiles: int, or_: int):
-    """COMMANDE MODIFIÉE - Duel avec gestion robuste des arguments"""
-    
-    # Fonction pour convertir un argument en Member
-    async def get_member(argument):
-        if isinstance(argument, discord.Member):
-            return argument
-        
-        # Si c'est une string, essayer différentes méthodes de conversion
-        if isinstance(argument, str):
-            # Retirer les mentions (@user)
-            argument = argument.strip('<@!>')
-            
-            # Essayer de convertir avec MemberConverter
-            try:
-                converter = commands.MemberConverter()
-                return await converter.convert(ctx, argument)
-            except commands.MemberNotFound:
-                pass
-            
-            # Essayer de trouver par ID
-            if argument.isdigit():
-                try:
-                    return await ctx.guild.fetch_member(int(argument))
-                except discord.NotFound:
-                    pass
-            
-            # Essayer de trouver par nom/pseudonyme
-            for member in ctx.guild.members:
-                if (member.display_name.lower() == argument.lower() or 
-                    member.name.lower() == argument.lower()):
-                    return member
-            
-            return None
-        
-        return None
-    
-    # Convertir les arguments
-    gagnant_member = await get_member(gagnant)
-    perdant_member = await get_member(perdant)
-    
-    if gagnant_member is None:
-        await ctx.send(f"❌ Impossible de trouver le membre gagnant : {gagnant}")
-        return
-    
-    if perdant_member is None:
-        await ctx.send(f"❌ Impossible de trouver le membre perdant : {perdant}")
-        return
-    
-    # Utiliser les objets Member convertis pour le reste de la fonction
-    gagnant = gagnant_member
-    perdant = perdant_member
-    
+async def duel(ctx, gagnant: discord.Member, perdant: discord.Member, etoiles: int, or_: int):
+    """COMMANDE MODIFIÉE - Duel avec gestion des nouveaux effets"""
     if not est_inscrit(gagnant.id) or not est_inscrit(perdant.id):
         await ctx.send("❌ Les deux joueurs doivent être inscrits.")
         return
@@ -1112,7 +1061,6 @@ async def duel(ctx, gagnant, perdant, etoiles: int, or_: int):
 
     # ----- Effet Minerva côté perdant : perd 1 ⭐ de moins, une seule fois -----
     perte_etoiles = etoiles
-    minerva_message = ""
     if joueurs.get(perdant.id, {}).get("minerva_shield"):
         perte_etoiles = max(0, etoiles - 1)
         joueurs[perdant.id]["minerva_shield"] = False
@@ -1120,7 +1068,6 @@ async def duel(ctx, gagnant, perdant, etoiles: int, or_: int):
         statuts = joueurs[perdant.id].get("statuts", [])
         if "Protégé par Minerva" in statuts:
             statuts.remove("Protégé par Minerva")
-        minerva_message = f"\n🛡️ Le bouclier Minerva de {perdant.display_name} absorbe 1 étoile de dégâts !"
 
     # ----- Consommation effet Skream après 1 duel -----
     skream_message = ""
@@ -1148,7 +1095,7 @@ async def duel(ctx, gagnant, perdant, etoiles: int, or_: int):
         f"⚔️ Duel terminé à **{positions.get(gagnant.id, 'Zone inconnue')}** !\n"
         f"🏆 {gagnant.display_name} gagne ⭐{perte_etoiles} étoile(s) et 💰{or_} or.\n"
         f"💀 {perdant.display_name} perd ⭐{perte_etoiles} étoile(s) et 💰{or_} or."
-        f"{minerva_message}{skream_message}"
+        f"{skream_message}"
     )
 
     # Vérification élimination avec protection Atem
@@ -1168,7 +1115,6 @@ async def duel(ctx, gagnant, perdant, etoiles: int, or_: int):
             # Élimination normale
             await ctx.send(f":skull: **{perdant.display_name} est éliminé du tournoi !**")
             elimines.add(perdant.id)
-            await activer_effet_adam(perdant.id, ctx.channel)
             joueurs.pop(perdant.id, None)
             positions.pop(perdant.id, None)
             inventaires.pop(perdant.id, None)
