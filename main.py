@@ -1115,6 +1115,7 @@ async def duel(ctx, gagnant: discord.Member, perdant: discord.Member, etoiles: i
             # Élimination normale
             await ctx.send(f":skull: **{perdant.display_name} est éliminé du tournoi !**")
             elimines.add(perdant.id)
+            await activer_effet_adam(perdant.id, ctx.channel)
             joueurs.pop(perdant.id, None)
             positions.pop(perdant.id, None)
             inventaires.pop(perdant.id, None)
