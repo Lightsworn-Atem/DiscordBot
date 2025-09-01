@@ -2478,6 +2478,62 @@ async def reset_secrets(ctx):
     save_data()
     await ctx.send("✅ Réinitialisation terminée.")
 
+@bot.command()
+@is_owner()
+async def debug_elimination(ctx, membre: discord.Member):
+    """Debug pour vérifier l'état d'un joueur (admin only)"""
+    uid = membre.id
+    
+    embed = discord.Embed(title=f"🔍 Debug - État de {membre.display_name}", color=discord.Color.yellow())
+    
+    # Vérifier chaque dictionnaire
+    embed.add_field(name="Dans joueurs", value=str(uid in joueurs), inline=True)
+    embed.add_field(name="Dans positions", value=str(uid in positions), inline=True)
+    embed.add_field(name="Dans inventaires", value=str(uid in inventaires), inline=True)
+    embed.add_field(name="Dans elimines", value=str(uid in elimines), inline=True)
+    embed.add_field(name="est_inscrit()", value=str(est_inscrit(uid)), inline=True)
+    
+    # Données si elles existent
+    if uid in joueurs:
+        stats = joueurs[uid]
+        embed.add_field(name="Données joueur", 
+                       value=f"Or: {stats.get('or', 'N/A')}, Étoiles: {stats.get('etoiles', 'N/A')}", 
+                       inline=False)
+    
+    if uid in positions:
+        embed.add_field(name="Position", value=positions[uid], inline=True)
+    
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def joueurs_liste_v2(ctx):
+    """Version corrigée de la liste des joueurs qui filtre les éliminés"""
+    if not joueurs:
+        await ctx.send("❌ Aucun joueur inscrit.")
+        return
+
+    msg = "📜 **Liste des joueurs inscrits :**\n"
+    for uid, stats in joueurs.items():
+        # Vérifier explicitement que le joueur n'est pas éliminé
+        if uid in elimines:
+            continue  # Ignorer les joueurs éliminés
+            
+        try:
+            user = await bot.fetch_user(uid)
+            pseudo = user.display_name
+        except:
+            pseudo = f"ID {uid}"
+            
+        zone = positions.get(uid, "❓ Inconnue")
+        statuts = stats.get("statuts", [])
+        badge = f" [{' ,'.join(statuts)}]" if statuts else ""
+        msg += f"- {pseudo}{badge} → ⭐{stats['etoiles']} | 💰{stats['or']} | 📍 {zone}\n"
+
+    if len([uid for uid in joueurs.keys() if uid not in elimines]) == 0:
+        await ctx.send("❌ Aucun joueur actif (tous éliminés).")
+    else:
+        await ctx.send(msg)
+
 
 # --- TOURNOI TYRANO ---
 # Stockage temporaire : {adversaire: {auteur: deck}}
