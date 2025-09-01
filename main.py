@@ -1108,6 +1108,10 @@ async def duel(ctx, gagnant: discord.Member, perdant: discord.Member, etoiles: i
     if gagnant_id == perdant_id:
         await ctx.send("❌ Tu ne peux pas te défier toi-même !")
         return
+    
+    if gagnant_id == 999999999999999999 or perdant_id == 999999999999999999:
+        await ctx.send("Tu ne peux pas me défier, je joue Tear Shizu, ce serait trop facile.")
+        return
 
     # ----- Effet Minerva côté perdant : perd 1 ⭐ de moins, une seule fois -----
     perte_etoiles = etoiles
