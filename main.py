@@ -1593,27 +1593,24 @@ async def minerva(ctx):
 @bot.command()
 @require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def zaga(ctx):
-    """COMMANDE MODIFIÉE - ZagaNaga se venge des tournois précédents"""
+    """COMMANDE MODIFIÉE - ZagaNaga accorde le pouvoir de prohibition"""
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "zaga")
     if not ok:
         await ctx.send(msg)
         return
 
-    # Ajouter les archétypes à l'inventaire
-    nouveaux_archetypes = [
-        "Archétype Tenpai",
-        "Archétype Gimmick Puppet", 
-        "Naturia Beast"
-    ]
-    
-    for carte in nouveaux_archetypes:
-        inventaires[user_id]["cartes"].append(carte)
+    # Activer le statut Prohibition
+    joueurs[user_id].setdefault("statuts", [])
+    if "Prohibition" not in joueurs[user_id]["statuts"]:
+        joueurs[user_id]["statuts"].append("Prohibition")
 
     lock_exclusive(user_id, "zaga")
     save_data()
 
-    await ctx.send(f"{ctx.author.display_name}, ZagaNaga se venge des tournois précédents ! Les cartes suivantes ont été ajoutées à ton inventaire :\n- Archétype Tenpai\n- Archétype Gimmick Puppet\n- Naturia Beast")
+    await ctx.send(f"{ctx.author.display_name} active Prohibition !\n"
+                   f"**Effet :** Lors de chacun de tes duels, tu peux déclarer une carte d'ARCHÉTYPE DE MAIN DECK (donc PAS DE STAPLES) que ton adversaire ne pourra pas utiliser durant le BO3.\n"
+                   f"Tu dois simplement l'annoncer à ton adversaire avant le duel.")
 
 
 
