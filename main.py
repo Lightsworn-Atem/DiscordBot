@@ -2542,7 +2542,7 @@ print("Commandes enregistrées :", list(bot.all_commands.keys()))
 
 @bot.command()
 async def ping(ctx):
-    await ctx.send("Pong 🏓")
+    await ctx.send("Vous perdez 30 or")
 
 # --- CONFIGURATION DE LA VÉRIFICATION AUTOMATIQUE ---
 URL = "https://discordbot-s7ie.onrender.com"
