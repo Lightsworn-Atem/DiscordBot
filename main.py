@@ -1074,95 +1074,118 @@ async def ou(ctx, membre: discord.Member = None):
 @bot.command()
 @require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def duel(ctx, gagnant: discord.Member, perdant: discord.Member, etoiles: int, or_: int):
-    """COMMANDE MODIFIÉE - Duel avec gestion des nouveaux effets"""
-    if not est_inscrit(gagnant.id) or not est_inscrit(perdant.id):
+    """COMMANDE CORRIGÉE - Duel avec gestion des nouveaux effets"""
+    # Vérifier que les arguments sont bien des objets Member
+    if not isinstance(gagnant, discord.Member) or not isinstance(perdant, discord.Member):
+        await ctx.send("❌ Erreur : les joueurs doivent être mentionnés avec @pseudo")
+        return
+    
+    # Utiliser .id pour accéder aux IDs
+    gagnant_id = gagnant.id
+    perdant_id = perdant.id
+    
+    if not est_inscrit(gagnant_id) or not est_inscrit(perdant_id):
         await ctx.send("❌ Les deux joueurs doivent être inscrits.")
         return
 
-    if joueurs[perdant.id]["etoiles"] < etoiles:
+    if joueurs[perdant_id]["etoiles"] < etoiles:
         await ctx.send(f"❌ {perdant.display_name} n'a pas assez d'étoiles pour miser ({etoiles} demandées).")
         return
 
-    if joueurs[perdant.id]["or"] < or_:
+    if joueurs[perdant_id]["or"] < or_:
         await ctx.send(f"❌ {perdant.display_name} n'a pas assez d'or pour miser ({or_} demandés).")
         return
 
     # Vérification zone avec effet Skream
-    gagnant_omnipresent = joueurs.get(gagnant.id, {}).get("skream_omnipresent", False)
-    perdant_omnipresent = joueurs.get(perdant.id, {}).get("skream_omnipresent", False)
+    gagnant_omnipresent = joueurs.get(gagnant_id, {}).get("skream_omnipresent", False)
+    perdant_omnipresent = joueurs.get(perdant_id, {}).get("skream_omnipresent", False)
     
     if not gagnant_omnipresent and not perdant_omnipresent:
-        if positions.get(gagnant.id) != positions.get(perdant.id):
+        if positions.get(gagnant_id) != positions.get(perdant_id):
             await ctx.send("❌ Les deux joueurs doivent être dans la même zone pour dueler.")
             return
 
-    if gagnant.id == perdant.id:
+    if gagnant_id == perdant_id:
         await ctx.send("❌ Tu ne peux pas te défier toi-même !")
         return
 
     # ----- Effet Minerva côté perdant : perd 1 ⭐ de moins, une seule fois -----
     perte_etoiles = etoiles
-    if joueurs.get(perdant.id, {}).get("minerva_shield"):
+    if joueurs.get(perdant_id, {}).get("minerva_shield"):
         perte_etoiles = max(0, etoiles - 1)
-        joueurs[perdant.id]["minerva_shield"] = False
+        joueurs[perdant_id]["minerva_shield"] = False
         # Retire le statut visible
-        statuts = joueurs[perdant.id].get("statuts", [])
+        statuts = joueurs[perdant_id].get("statuts", [])
         if "Protégé par Minerva" in statuts:
             statuts.remove("Protégé par Minerva")
 
     # ----- Consommation effet Skream après 1 duel -----
     skream_message = ""
     if gagnant_omnipresent:
-        joueurs[gagnant.id]["skream_omnipresent"] = False
-        statuts = joueurs[gagnant.id].get("statuts", [])
+        joueurs[gagnant_id]["skream_omnipresent"] = False
+        statuts = joueurs[gagnant_id].get("statuts", [])
         if "Omniprésent" in statuts:
             statuts.remove("Omniprésent")
         skream_message = f"\n🌟 L'effet Skream de {gagnant.display_name} s'estompe après ce duel."
     
     if perdant_omnipresent:
-        joueurs[perdant.id]["skream_omnipresent"] = False
-        statuts = joueurs[perdant.id].get("statuts", [])
+        joueurs[perdant_id]["skream_omnipresent"] = False
+        statuts = joueurs[perdant_id].get("statuts", [])
         if "Omniprésent" in statuts:
             statuts.remove("Omniprésent")
         skream_message += f"\n🌟 L'effet Skream de {perdant.display_name} s'estompe après ce duel."
 
     # Transfert des mises
-    joueurs[perdant.id]["etoiles"] -= perte_etoiles
-    joueurs[gagnant.id]["etoiles"] += perte_etoiles
-    joueurs[gagnant.id]["or"] += or_
-    joueurs[perdant.id]["or"] -= or_
+    joueurs[perdant_id]["etoiles"] -= perte_etoiles
+    joueurs[gagnant_id]["etoiles"] += perte_etoiles
+    joueurs[gagnant_id]["or"] += or_
+    joueurs[perdant_id]["or"] -= or_
 
     await ctx.send(
-        f"⚔️ Duel terminé à **{positions.get(gagnant.id, 'Zone inconnue')}** !\n"
+        f"⚔️ Duel terminé à **{positions.get(gagnant_id, 'Zone inconnue')}** !\n"
         f"🏆 {gagnant.display_name} gagne ⭐{perte_etoiles} étoile(s) et 💰{or_} or.\n"
         f"💀 {perdant.display_name} perd ⭐{perte_etoiles} étoile(s) et 💰{or_} or."
         f"{skream_message}"
     )
 
     # Vérification élimination avec protection Atem
-    if joueurs[perdant.id]["etoiles"] <= 0:
-        if joueurs.get(perdant.id, {}).get("atem_protection", False):
+    if joueurs[perdant_id]["etoiles"] <= 0:
+        if joueurs.get(perdant_id, {}).get("atem_protection", False):
             # Protection Atem activée
-            joueurs[perdant.id]["etoiles"] = 1
-            joueurs[perdant.id]["atem_protection"] = False
+            joueurs[perdant_id]["etoiles"] = 1
+            joueurs[perdant_id]["atem_protection"] = False
             
             # Retirer le statut
-            statuts = joueurs[perdant.id].get("statuts", [])
+            statuts = joueurs[perdant_id].get("statuts", [])
             if "Protégé par Atem" in statuts:
                 statuts.remove("Protégé par Atem")
                 
             await ctx.send(f"🛡️ **{perdant.display_name}** était protégé par Atem ! Il survit avec 1 étoile !")
         else:
-            # Élimination normale
+            # Élimination complète avec nettoyage complet
             await ctx.send(f":skull: **{perdant.display_name} est éliminé du tournoi !**")
-            elimines.add(perdant.id)
-            await activer_effet_adam(perdant.id, ctx.channel)
-            joueurs.pop(perdant.id, None)
-            positions.pop(perdant.id, None)
-            inventaires.pop(perdant.id, None)
+            
+            # Ajouter aux éliminés AVANT de supprimer des autres dicts
+            elimines.add(perdant_id)
+            
+            # Activation éventuelle de l'effet Adam
+            await activer_effet_adam(perdant_id, ctx.channel)
+            
+            # Nettoyer TOUTES les données du joueur éliminé
+            joueurs.pop(perdant_id, None)
+            positions.pop(perdant_id, None)
+            inventaires.pop(perdant_id, None)
+            achats_uniques.pop(perdant_id, None)
+            derniers_deplacements.pop(str(perdant_id), None)
+            joueurs_adam_reserves.pop(perdant_id, None)
+            
+            # Nettoyer des commandes exclusives
+            if str(perdant_id) in commandes_uniques_globales.get("exclusives_joueurs", {}):
+                del commandes_uniques_globales["exclusives_joueurs"][str(perdant_id)]
 
-    derniers_deplacements[str(gagnant.id)] = False
-    derniers_deplacements[str(perdant.id)] = False
+    # Mise à jour des déplacements (utiliser les IDs en string pour cette structure)
+    derniers_deplacements[str(gagnant_id)] = False
+    derniers_deplacements[str(perdant_id)] = False
 
     # Vérifier si on passe en phase qualifiés
     if verifier_phase_qualifies():
