@@ -929,7 +929,7 @@ def load_data():
 
 # --- UTILITAIRES ---
 def est_inscrit(user_id):
-    return user_id in joueurs
+    return user_id in joueurs and user_id not in elimines
 
 
 @bot.command()
@@ -981,7 +981,7 @@ async def inscrire(ctx):
     save_data()
     await ctx.send(f"✅ {user.display_name} rejoint le tournoi avec 💰30 or et ⭐2 étoiles !")
 
-@bot.command()
+"""@bot.command()
 async def joueurs_liste(ctx):
     if not joueurs:
         await ctx.send("❌ Aucun joueur inscrit.")
@@ -999,7 +999,7 @@ async def joueurs_liste(ctx):
         badge = f" [{' ,'.join(statuts)}]" if statuts else ""
         msg += f"- {pseudo}{badge} → ⭐{stats['etoiles']} | 💰{stats['or']} | 📍 {zone}\n"
 
-    await ctx.send(msg)
+    await ctx.send(msg)"""
 
 
 # --- PROFIL ---
@@ -2505,8 +2505,50 @@ async def debug_elimination(ctx, membre: discord.Member):
     
     await ctx.send(embed=embed)
 
+
 @bot.command()
-async def joueurs_liste_v2(ctx):
+@is_owner()
+async def nettoyer_elimines(ctx):
+    """Nettoie complètement tous les joueurs éliminés de toutes les structures de données"""
+    nettoyés = 0
+    
+    # Parcourir tous les éliminés et les nettoyer
+    for uid in list(elimines):
+        # Supprimer de joueurs (si encore présent)
+        if uid in joueurs:
+            del joueurs[uid]
+            nettoyés += 1
+        
+        # Supprimer de positions
+        if uid in positions:
+            del positions[uid]
+        
+        # Supprimer de inventaires
+        if uid in inventaires:
+            del inventaires[uid]
+        
+        # Supprimer des achats uniques
+        if uid in achats_uniques:
+            del achats_uniques[uid]
+        
+        # Supprimer des déplacements
+        if str(uid) in derniers_deplacements:
+            del derniers_deplacements[str(uid)]
+        
+        # Supprimer des réserves Adam
+        if uid in joueurs_adam_reserves:
+            del joueurs_adam_reserves[uid]
+        
+        # Supprimer des commandes exclusives
+        if str(uid) in commandes_uniques_globales.get("exclusives_joueurs", {}):
+            del commandes_uniques_globales["exclusives_joueurs"][str(uid)]
+    
+    save_data()
+    await ctx.send(f"🧹 Nettoyage terminé ! {nettoyés} joueurs éliminés supprimés de toutes les structures.")
+
+
+@bot.command()
+async def joueurs_liste(ctx):
     """Version corrigée de la liste des joueurs qui filtre les éliminés"""
     if not joueurs:
         await ctx.send("❌ Aucun joueur inscrit.")
