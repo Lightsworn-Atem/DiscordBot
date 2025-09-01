@@ -182,9 +182,35 @@ def verifier_phase_qualifies():
 async def annoncer_changement_phase(channel, nouvelle_phase):
     """Annonce le changement de phase dans le salon"""
     if nouvelle_phase == PHASE_TOURNOI:
-        await channel.send("🚀 **PHASE DE TOURNOI ACTIVÉE !**\nLes inscriptions sont fermées, que les duels commencent !")
+        # Disperser les joueurs quand la phase 2 commence
+        disperser_joueurs_aleatoirement()
+        
+        # Créer un message avec la répartition
+        repartition = {}
+        for user_id, zone in positions.items():
+            if user_id in joueurs and user_id != 999999999999999999:
+                if zone not in repartition:
+                    repartition[zone] = []
+                try:
+                    user = await bot.fetch_user(user_id)
+                    repartition[zone].append(user.display_name)
+                except:
+                    repartition[zone].append(f"ID {user_id}")
+        
+        message = "**PHASE DE TOURNOI !**\nLes inscriptions sont fermées, que les duels commencent !\n\n"
+        message += "🎲 **Dispersion aléatoire des joueurs :**\n"
+        
+        for zone, joueurs_liste in repartition.items():
+            if joueurs_liste:  # Seulement afficher les zones avec des joueurs
+                message += f"📍 **{zone}** : {', '.join(joueurs_liste)}\n"
+        
+        message += "\n⚠️ Vous devez disputer un duel dans votre zone actuelle avant de pouvoir vous déplacer !"
+        
+        await channel.send(message)
+        
     elif nouvelle_phase == PHASE_QUALIFIES:
         await channel.send("🏆 **PHASE DES QUALIFIÉS ATTEINTE !**\n4 joueurs ont atteint 10 étoiles ! Place aux phases finales !")
+
 
 def require_phase(*phases_autorisees):
     """Décorateur pour limiter les commandes à certaines phases"""
@@ -226,6 +252,7 @@ async def phase(ctx, nouvelle_phase: int = None):
     
     await ctx.send(f"✅ Phase changée de **{get_phase_name(ancienne_phase)}** vers **{get_phase_name(nouvelle_phase)}**")
     
+    # Déclencher la dispersion si on passe en phase tournoi
     if nouvelle_phase == PHASE_TOURNOI:
         await annoncer_changement_phase(ctx.channel, PHASE_TOURNOI)
     elif nouvelle_phase == PHASE_QUALIFIES:
@@ -281,6 +308,16 @@ async def statut_tournoi(ctx):
         embed.add_field(name="Action possible", value="Phase finale en cours", inline=False)
     
     await ctx.send(embed=embed)
+
+def disperser_joueurs_aleatoirement():
+    """Disperse tous les joueurs dans des zones aléatoirement"""
+    for user_id in joueurs.keys():
+        if user_id != 999999999999999999:  # Exclure Mathmech Circular
+            zone_aleatoire = random.choice(zones)
+            positions[user_id] = zone_aleatoire
+            # Marquer que le joueur doit faire un duel avant de pouvoir bouger
+            derniers_deplacements[str(user_id)] = True
+    save_data()
 
 
 @tasks.loop(hours=24)
@@ -985,6 +1022,7 @@ async def zones_dispo(ctx):
     await ctx.send("🌍 Zones disponibles : " + ", ".join(zones))
 
 @bot.command()
+@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def aller(ctx, *, zone: str):
     user = ctx.author
     user_id = str(user.id)
@@ -1034,6 +1072,7 @@ async def ou(ctx, membre: discord.Member = None):
 
 # --- DUEL ---
 @bot.command()
+@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def duel(ctx, gagnant: discord.Member, perdant: discord.Member, etoiles: int, or_: int):
     """COMMANDE MODIFIÉE - Duel avec gestion des nouveaux effets"""
     if not est_inscrit(gagnant.id) or not est_inscrit(perdant.id):
