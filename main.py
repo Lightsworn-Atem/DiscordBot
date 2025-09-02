@@ -185,10 +185,11 @@ async def annoncer_changement_phase(channel, nouvelle_phase):
         # Disperser les joueurs quand la phase 2 commence
         disperser_joueurs_aleatoirement()
         
-        # Créer un message avec la répartition
+        # Créer un message avec la répartition des joueurs ACTIFS seulement
         repartition = {}
         for user_id, zone in positions.items():
-            if user_id in joueurs and user_id != 999999999999999999:
+            # CORRECTION : Vérifier que le joueur est actif
+            if user_id in joueurs and user_id != 999999999999999999 and user_id not in elimines:
                 if zone not in repartition:
                     repartition[zone] = []
                 try:
@@ -210,6 +211,7 @@ async def annoncer_changement_phase(channel, nouvelle_phase):
         
     elif nouvelle_phase == PHASE_QUALIFIES:
         await channel.send("🏆 **PHASE DES QUALIFIÉS ATTEINTE !**\n4 joueurs ont atteint 10 étoiles ! Place aux phases finales !")
+
 
 
 def require_phase(*phases_autorisees):
@@ -234,9 +236,11 @@ async def phase(ctx, nouvelle_phase: int = None):
     
     if nouvelle_phase is None:
         qualifies = compter_qualifies()
+        joueurs_actifs = len([uid for uid in joueurs.keys() if uid not in elimines])
+        
         embed = discord.Embed(title="📊 État du tournoi", color=discord.Color.blue())
         embed.add_field(name="Phase actuelle", value=f"{phase_actuelle} - {get_phase_name(phase_actuelle)}", inline=False)
-        embed.add_field(name="Joueurs inscrits", value=len(joueurs), inline=True)
+        embed.add_field(name="Joueurs actifs", value=joueurs_actifs, inline=True)  # CORRECTION
         embed.add_field(name="Joueurs éliminés", value=len(elimines), inline=True)
         embed.add_field(name="Joueurs qualifiés", value=f"{qualifies}/4", inline=True)
         await ctx.send(embed=embed)
@@ -257,6 +261,23 @@ async def phase(ctx, nouvelle_phase: int = None):
         await annoncer_changement_phase(ctx.channel, PHASE_TOURNOI)
     elif nouvelle_phase == PHASE_QUALIFIES:
         await annoncer_changement_phase(ctx.channel, PHASE_QUALIFIES)
+
+def eliminer_joueur_completement(user_id):
+    """Supprime complètement un joueur de toutes les structures de données"""
+    # Ajouter aux éliminés
+    elimines.add(user_id)
+    
+    # Supprimer de toutes les autres structures
+    joueurs.pop(user_id, None)
+    positions.pop(user_id, None)
+    inventaires.pop(user_id, None)
+    achats_uniques.pop(user_id, None)
+    derniers_deplacements.pop(str(user_id), None)
+    joueurs_adam_reserves.pop(user_id, None)
+    
+    # Nettoyer des commandes exclusives
+    if str(user_id) in commandes_uniques_globales.get("exclusives_joueurs", {}):
+        del commandes_uniques_globales["exclusives_joueurs"][str(user_id)]
 
 @bot.command()
 @require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
@@ -310,9 +331,10 @@ async def statut_tournoi(ctx):
     await ctx.send(embed=embed)
 
 def disperser_joueurs_aleatoirement():
-    """Disperse tous les joueurs dans des zones aléatoirement"""
+    """Disperse tous les joueurs ACTIFS dans des zones aléatoirement"""
     for user_id in joueurs.keys():
-        if user_id != 999999999999999999:  # Exclure Mathmech Circular
+        # CORRECTION : Vérifier que le joueur n'est pas éliminé
+        if user_id != 999999999999999999 and user_id not in elimines:
             zone_aleatoire = random.choice(zones)
             positions[user_id] = zone_aleatoire
             # Marquer que le joueur doit faire un duel avant de pouvoir bouger
@@ -1071,14 +1093,117 @@ async def ou(ctx, membre: discord.Member = None):
 
 
 # --- DUEL ---
-# Remplacez votre fonction duel actuelle par celle-ci :
-
-# Remplacez votre fonction duel actuelle par celle-ci :
 
 @bot.command()
+async def duel(ctx, gagnant: discord.Member, perdant: discord.Member, etoiles: int, or_: int):
+    if not est_inscrit(gagnant.id) or not est_inscrit(perdant.id):
+        await ctx.send("❌ Les deux joueurs doivent être inscrits.")
+        return
+
+    if joueurs[perdant.id]["etoiles"] < etoiles:
+        await ctx.send(f"❌ {perdant.display_name} n’a pas assez d’étoiles pour miser ({etoiles} demandées).")
+        return
+
+    if joueurs[perdant.id]["or"] < or_:
+        await ctx.send(f"❌ {perdant.display_name} n’a pas assez d’or pour miser ({or_} demandés).")
+        return
+
+    if positions.get(gagnant.id) != positions.get(perdant.id):
+        await ctx.send("❌ Les deux joueurs doivent être dans la même zone pour dueler.")
+        return
+
+    if gagnant.id == perdant.id:
+        await ctx.send("❌ Tu ne peux pas te défier toi-même !")
+        return
+
+    # ----- Effet Minerva côté perdant : perd 1 ⭐ de moins, une seule fois -----
+    perte_etoiles = etoiles
+
+    if joueurs.get(perdant.id, {}).get("minerva_shield"):
+        perte_etoiles = max(0, etoiles - 1)
+        joueurs[perdant.id]["minerva_shield"] = False
+        # Retire le statut visible
+        statuts = joueurs[perdant.id].get("statuts", [])
+        if "Protégé par Minerva" in statuts:
+            statuts.remove("Protégé par Minerva")
+
+
+    # ----- Consommation effet Skream après 1 duel -----
+    skream_message = ""
+    if joueurs.get(gagnant.id, {}).get("skream_omnipresent") == True:
+        joueurs[gagnant.id]["skream_omnipresent"] = False
+        statuts = joueurs[gagnant.id].get("statuts", [])
+        if "Omniprésent" in statuts:
+            statuts.remove("Omniprésent")
+        skream_message = f"\n🌟 L'effet Skream de {gagnant.display_name} s'estompe après ce duel."
+    
+    if joueurs.get(gagnant.id, {}).get("skream_omnipresent") == True:
+        joueurs[perdant.id]["skream_omnipresent"] = False
+        statuts = joueurs[perdant.id].get("statuts", [])
+        if "Omniprésent" in statuts:
+            statuts.remove("Omniprésent")
+        skream_message += f"\n🌟 L'effet Skream de {perdant.display_name} s'estompe après ce duel."
+
+
+    # Transfert des mises (on transfère ce que le perdant perd réellement)
+    joueurs[perdant.id]["etoiles"] -= perte_etoiles
+    joueurs[gagnant.id]["etoiles"] += perte_etoiles
+    joueurs[gagnant.id]["or"] += or_
+    joueurs[perdant.id]["or"] -= or_
+
+    await ctx.send(
+        f"⚔️ Duel terminé à **{positions[gagnant.id]}** !\n"
+        f"🏆 {gagnant.display_name} gagne ⭐{perte_etoiles} étoile(s) et 💰{or_} or.\n"
+        f"💀 {perdant.display_name} perd ⭐{perte_etoiles} étoile(s) et 💰{or_} or."
+    )
+
+    # Élimination éventuelle
+    if joueurs[perdant.id]["etoiles"] <= 0:
+        await ctx.send(f":skull: **{perdant.display_name} est éliminé du tournoi !**")
+        elimines.add(perdant.id)
+        joueurs.pop(perdant.id, None)
+        positions.pop(perdant.id, None)
+        inventaires.pop(perdant.id, None)
+
+    if joueurs[perdant.id]["etoiles"] <= 0:
+        if joueurs.get(perdant.id, {}).get("atem_protection", False):
+            # Protection Atem activée
+            joueurs[perdant.id]["etoiles"] = 1
+            joueurs[perdant.id]["atem_protection"] = False
+            
+            # Retirer le statut
+            statuts = joueurs[perdant.id].get("statuts", [])
+            if "Protégé par Atem" in statuts:
+                statuts.remove("Protégé par Atem")
+                
+            await ctx.send(f"🛡️ **{perdant.display_name}** était protégé par Atem ! Il survit avec 1 étoile !")
+        else:
+            # Élimination complète
+            await ctx.send(f":skull: **{perdant.display_name} est éliminé du tournoi !**")
+            
+            # Activation éventuelle de l'effet Adam AVANT élimination complète
+            await activer_effet_adam(perdant.id, ctx.channel)
+            
+            # Utiliser la fonction de nettoyage complète
+            eliminer_joueur_completement(perdant.id)
+
+            # Mise à jour des déplacements (utiliser les IDs en string pour cette structure)
+            derniers_deplacements[str(gagnant.id)] = False
+            derniers_deplacements[str(perdant.id)] = False
+
+            # Vérifier si on passe en phase qualifiés
+            if verifier_phase_qualifies():
+                await annoncer_changement_phase(ctx.channel, PHASE_QUALIFIES)
+
+
+    derniers_deplacements[str(gagnant.id)] = False
+    derniers_deplacements[str(perdant.id)] = False
+
+    save_data()
+
+"""@bot.command()
 @require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def duel(ctx, gagnant, perdant, etoiles: int, or_: int):
-    """COMMANDE CORRIGÉE - Duel avec gestion des nouveaux effets"""
     
     # Debug pour vérifier les types
     print(f"Type gagnant: {type(gagnant)}, Type perdant: {type(perdant)}")
@@ -1186,36 +1311,24 @@ async def duel(ctx, gagnant, perdant, etoiles: int, or_: int):
                 
             await ctx.send(f"🛡️ **{perdant.display_name}** était protégé par Atem ! Il survit avec 1 étoile !")
         else:
-            # Élimination complète avec nettoyage complet
+            # Élimination complète
             await ctx.send(f":skull: **{perdant.display_name} est éliminé du tournoi !**")
             
-            # Ajouter aux éliminés AVANT de supprimer des autres dicts
-            elimines.add(perdant_id)
-            
-            # Activation éventuelle de l'effet Adam
+            # Activation éventuelle de l'effet Adam AVANT élimination complète
             await activer_effet_adam(perdant_id, ctx.channel)
             
-            # Nettoyer TOUTES les données du joueur éliminé
-            joueurs.pop(perdant_id, None)
-            positions.pop(perdant_id, None)
-            inventaires.pop(perdant_id, None)
-            achats_uniques.pop(perdant_id, None)
-            derniers_deplacements.pop(str(perdant_id), None)
-            joueurs_adam_reserves.pop(perdant_id, None)
-            
-            # Nettoyer des commandes exclusives
-            if str(perdant_id) in commandes_uniques_globales.get("exclusives_joueurs", {}):
-                del commandes_uniques_globales["exclusives_joueurs"][str(perdant_id)]
+            # Utiliser la fonction de nettoyage complète
+            eliminer_joueur_completement(perdant_id)
 
-    # Mise à jour des déplacements (utiliser les IDs en string pour cette structure)
-    derniers_deplacements[str(gagnant_id)] = False
-    derniers_deplacements[str(perdant_id)] = False
+            # Mise à jour des déplacements (utiliser les IDs en string pour cette structure)
+            derniers_deplacements[str(gagnant_id)] = False
+            derniers_deplacements[str(perdant_id)] = False
 
-    # Vérifier si on passe en phase qualifiés
-    if verifier_phase_qualifies():
-        await annoncer_changement_phase(ctx.channel, PHASE_QUALIFIES)
+            # Vérifier si on passe en phase qualifiés
+            if verifier_phase_qualifies():
+                await annoncer_changement_phase(ctx.channel, PHASE_QUALIFIES)
 
-    save_data()
+            save_data()"""
 
 
 # Et gardez votre gestionnaire d'erreurs actuel :
