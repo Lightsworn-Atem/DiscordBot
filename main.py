@@ -1073,9 +1073,11 @@ async def ou(ctx, membre: discord.Member = None):
 # --- DUEL ---
 # Remplacez votre fonction duel actuelle par celle-ci :
 
+# Remplacez votre fonction duel actuelle par celle-ci :
+
 @bot.command()
 @require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
-async def duel(ctx, gagnant: discord.Member, perdant: discord.Member, etoiles: int, or_: int):
+async def duel(ctx, gagnant, perdant, etoiles: int, or_: int):
     """COMMANDE CORRIGÉE - Duel avec gestion des nouveaux effets"""
     
     # Debug pour vérifier les types
