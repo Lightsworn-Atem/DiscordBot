@@ -1071,16 +1071,34 @@ async def ou(ctx, membre: discord.Member = None):
 
 
 # --- DUEL ---
+# Remplacez votre fonction duel actuelle par celle-ci :
+
 @bot.command()
 @require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def duel(ctx, gagnant: discord.Member, perdant: discord.Member, etoiles: int, or_: int):
     """COMMANDE CORRIGÉE - Duel avec gestion des nouveaux effets"""
-    # Vérifier que les arguments sont bien des objets Member
-    if not isinstance(gagnant, discord.Member) or not isinstance(perdant, discord.Member):
-        await ctx.send("❌ Erreur : les joueurs doivent être mentionnés avec @pseudo")
-        return
     
-    # Utiliser .id pour accéder aux IDs
+    # Debug pour vérifier les types
+    print(f"Type gagnant: {type(gagnant)}, Type perdant: {type(perdant)}")
+    
+    # Conversion explicite si nécessaire
+    if isinstance(gagnant, str):
+        try:
+            converter = commands.MemberConverter()
+            gagnant = await converter.convert(ctx, gagnant)
+        except commands.MemberNotFound:
+            await ctx.send(f"❌ Impossible de trouver le membre: {gagnant}")
+            return
+    
+    if isinstance(perdant, str):
+        try:
+            converter = commands.MemberConverter()
+            perdant = await converter.convert(ctx, perdant)
+        except commands.MemberNotFound:
+            await ctx.send(f"❌ Impossible de trouver le membre: {perdant}")
+            return
+    
+    # Maintenant on peut utiliser .id en sécurité
     gagnant_id = gagnant.id
     perdant_id = perdant.id
     
@@ -1198,7 +1216,7 @@ async def duel(ctx, gagnant: discord.Member, perdant: discord.Member, etoiles: i
     save_data()
 
 
-# --- GESTION D'ERREURS POUR LA COMMANDE DUEL ---
+# Et gardez votre gestionnaire d'erreurs actuel :
 @duel.error
 async def duel_error(ctx, error):
     if isinstance(error, commands.MissingRequiredArgument):
@@ -1210,6 +1228,7 @@ async def duel_error(ctx, error):
     else:
         await ctx.send(f"❌ Erreur lors du duel : {str(error)}")
         print(f"Erreur duel non gérée: {error}")
+
 
 
 # --- COMMANDE DEBUG POUR TESTER LA CONVERSION ---
