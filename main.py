@@ -280,7 +280,7 @@ def eliminer_joueur_completement(user_id):
         del commandes_uniques_globales["exclusives_joueurs"][str(user_id)]
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
+
 async def qualifies(ctx):
     """Affiche la liste des joueurs qualifiés (10+ étoiles)"""
     joueurs_qualifies = []
@@ -1044,7 +1044,6 @@ async def zones_dispo(ctx):
     await ctx.send("🌍 Zones disponibles : " + ", ".join(zones))
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def aller(ctx, *, zone: str):
     user = ctx.author
     user_id = str(user.id)
@@ -1121,7 +1120,6 @@ async def convert_to_member(ctx, user_string):
     raise commands.MemberNotFound(user_string)
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def duel(ctx, gagnant_str: str = None, perdant_str: str = None, etoiles: int = 1, or_amount: int = 0):
     """Commande duel avec conversion manuelle des membres"""
     
@@ -1416,7 +1414,6 @@ async def boutique_cmd(ctx, *, nom: str = None):
             await ctx.send("❌ Pack ou shop introuvable.")
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def acheter(ctx, *, nom):
     """Permet d'acheter un pack complet ou une carte d'un shop - VERSION CORRIGÉE"""
     user = ctx.author
@@ -1672,7 +1669,6 @@ async def localisations(ctx):
 
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def manger(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "manger")
@@ -1696,7 +1692,6 @@ async def manger(ctx):
     await ctx.send(f"{ctx.author.display_name} s'achète un bon plat local pour 10 or. Il est à présent rassasié. Lors du tournoi, il pourra décider d'un duel où les LP des joueurs seront de 16000.")
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def everyone(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "everyone")
@@ -1733,7 +1728,6 @@ async def everyone(ctx):
 
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def ban(ctx, membre: discord.Member = None):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "ban")
@@ -1774,7 +1768,6 @@ async def ban(ctx, membre: discord.Member = None):
 
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def lightsworn(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "lightsworn")
@@ -1793,7 +1786,6 @@ async def lightsworn(ctx):
 
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def etyop(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "etyop")
@@ -1812,7 +1804,6 @@ async def etyop(ctx):
 
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def ahi(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "ahi")
@@ -1833,7 +1824,6 @@ async def ahi(ctx):
     save_data()
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def pack(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "pack")
@@ -1851,7 +1841,6 @@ async def pack(ctx):
     await ctx.send("Ouvrez un pack de votre choix sur Master Duel. Vous gagnez les récompenses suivantes selon ce que vous avez obtenu : 30 or par UR, 20 or par SR, 10 or par R, 5 or par N, 1 étoile par royale.")
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def napo(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "napo")
@@ -1869,7 +1858,6 @@ async def napo(ctx):
     await ctx.send("Pour le reste du tournoi, vous avez la possibilité de rajouter 1 \"Axe Raider\" à votre deck. Si vous remportez un duel en l'ayant invoqué, vous gagnez 100 or.")
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def potofgreed(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "potofgreed")
@@ -1890,7 +1878,6 @@ async def potofgreed(ctx):
     await ctx.send(f"Tous les joueurs piochent 2 cartes ! (chaque joueur gagne 20 or)\n✅ {joueurs_touches} joueurs ont reçu 20 or !")
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def potofextravagance(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "potofextravagance")
@@ -1930,7 +1917,6 @@ async def potofextravagance(ctx):
 
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
 async def atem(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "atem")
@@ -1952,7 +1938,7 @@ async def atem(ctx):
 
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
+
 async def skream(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "skream")
@@ -1974,7 +1960,7 @@ async def skream(ctx):
 
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
+
 async def tyrano(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "tyrano")
@@ -1995,7 +1981,7 @@ async def tyrano(ctx):
     await ctx.send(f"{ctx.author.display_name} active une météore ! À la fin de chaque BO3, tu gagnes 3 or par monstre détruit par un effet. Si 30 monstres sont détruits en 1 BO3, tu gagnes 1 étoile !")
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
+
 async def retro(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "retro")
@@ -2013,7 +1999,7 @@ async def retro(ctx):
 
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
+
 async def voorhees(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "voorhees")
@@ -2037,7 +2023,7 @@ async def voorhees(ctx):
 
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
+
 async def yop(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "yop")
@@ -2059,7 +2045,7 @@ async def yop(ctx):
 
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
+
 async def fsz(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "fsz")
@@ -2079,7 +2065,7 @@ async def fsz(ctx):
 
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
+
 async def fman(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "fman")
@@ -2096,7 +2082,7 @@ async def fman(ctx):
 
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
+
 async def minerva(ctx):
     user = ctx.author
     if not est_inscrit(user.id):
@@ -2117,7 +2103,7 @@ async def minerva(ctx):
 
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
+
 async def zaga(ctx):
     """COMMANDE MODIFIÉE - ZagaNaga accorde le pouvoir de prohibition"""
     user_id = ctx.author.id
@@ -2142,7 +2128,7 @@ async def zaga(ctx):
 
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
+
 async def fayth(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "fayth")
@@ -2165,7 +2151,7 @@ async def fayth(ctx):
 
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
+
 async def capitaine(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "capitaine")
@@ -2182,7 +2168,7 @@ async def capitaine(ctx):
     await ctx.send(f"{ctx.author.display_name} est traité comme roux pour le reste du tournoi !")
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
+
 async def roux(ctx):
     """Commande secrète : uniquement pour les joueurs roux."""
     user = ctx.author
@@ -2213,7 +2199,7 @@ async def roux(ctx):
     await ctx.send(f"{user.display_name} gagne **1 étoile** !")
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
+
 async def mirvu(ctx):
     """Commande Mirvu avec le scénario complet"""
     global mirvu_bot_etoiles
@@ -2303,7 +2289,7 @@ async def mirvu(ctx):
     save_data()
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
+
 async def shaman(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "shaman")
@@ -2321,7 +2307,7 @@ async def shaman(ctx):
 
 
 @bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
+
 async def adam(ctx):
     """Permet à un joueur encore en course de réserver l'effet Adam pour son élimination future"""
     user_id = ctx.author.id
