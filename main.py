@@ -1627,7 +1627,7 @@ async def classement(ctx):
     await ctx.send(embed=embed)
 
 @bot.command()
-async def positions(ctx):
+async def localisations(ctx):
     """Affiche les joueurs présents dans chaque zone"""
     if not positions:
         await ctx.send("❌ Aucune position enregistrée.")
