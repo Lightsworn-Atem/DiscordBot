@@ -1041,16 +1041,7 @@ async def profil(ctx, membre: discord.Member = None):
 # --- DEPLACEMENT ---
 @bot.command()
 async def zones_dispo(ctx):
-    """Version embed des zones disponibles"""
-    embed = discord.Embed(title="🌍 Zones disponibles", color=discord.Color.blue())
-    embed.description = "Voici toutes les zones où vous pouvez vous rendre:"
-    
-    for i, zone in enumerate(zones, 1):
-        embed.add_field(name=f"{i}. {zone}", value="📍 Disponible", inline=True)
-    
-    embed.set_footer(text="Utilisez !aller [nom_zone] pour vous déplacer")
-    await ctx.send(embed=embed)
-
+    await ctx.send("🌍 Zones disponibles : " + ", ".join(zones))
 
 @bot.command()
 @require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
@@ -1260,14 +1251,14 @@ async def duel_error(ctx, error):
         await ctx.send("❌ Un des membres mentionnés est introuvable.")
     else:
         await ctx.send(f"❌ Erreur lors du duel : {str(error)}")
-        print(f"Erreur duel non gérée: {error}")"""
+        print(f"Erreur duel non gérée: {error}")
+
 
 
 # --- COMMANDE DEBUG POUR TESTER LA CONVERSION ---
 @bot.command()
 @is_owner()
 async def test_membre(ctx, *, argument):
-    """Teste la conversion d'un argument en Member (debug admin)"""
     try:
         converter = commands.MemberConverter()
         member = await converter.convert(ctx, argument)
@@ -1275,121 +1266,10 @@ async def test_membre(ctx, *, argument):
     except commands.MemberNotFound:
         await ctx.send(f"❌ Impossible de convertir '{argument}' en Member")
     except Exception as e:
-        await ctx.send(f"❌ Erreur : {e}")
+        await ctx.send(f"❌ Erreur : {e}")"""
 
 
-# 1. Commande !classement
-@bot.command()
-async def classement(ctx):
-    """Affiche le classement des joueurs par ordre décroissant d'étoiles"""
-    if not joueurs:
-        await ctx.send("❌ Aucun joueur inscrit.")
-        return
 
-    # Créer une liste des joueurs actifs (non éliminés) avec leurs stats
-    joueurs_actifs = []
-    for uid, stats in joueurs.items():
-        if uid not in elimines and uid != 999999999999999999:  # Exclure Mathmech Circular
-            try:
-                user = await bot.fetch_user(uid)
-                pseudo = user.display_name
-            except:
-                pseudo = f"ID {uid}"
-            
-            joueurs_actifs.append((pseudo, stats['etoiles'], stats['or'], uid))
-    
-    if not joueurs_actifs:
-        await ctx.send("❌ Aucun joueur actif.")
-        return
-    
-    # Trier par nombre d'étoiles décroissant, puis par or en cas d'égalité
-    joueurs_actifs.sort(key=lambda x: (x[1], x[2]), reverse=True)
-    
-    embed = discord.Embed(title="🏆 Classement du tournoi", color=discord.Color.gold())
-    embed.description = "Classement par nombre d'étoiles"
-    
-    for i, (pseudo, etoiles, or_amount, uid) in enumerate(joueurs_actifs[:15], 1):  # Top 15
-        # Ajouter des icônes pour le podium
-        if i == 1:
-            icone = "🥇"
-        elif i == 2:
-            icone = "🥈"
-        elif i == 3:
-            icone = "🥉"
-        else:
-            icone = f"{i}."
-        
-        # Afficher les statuts si disponibles
-        statuts = joueurs[uid].get("statuts", [])
-        badge = f" [{', '.join(statuts)}]" if statuts else ""
-        
-        embed.add_field(
-            name=f"{icone} {pseudo}{badge}",
-            value=f"⭐ {etoiles} étoiles | 💰 {or_amount} or",
-            inline=False
-        )
-    
-    if len(joueurs_actifs) > 15:
-        embed.set_footer(text=f"Affichage du top 15 sur {len(joueurs_actifs)} joueurs actifs")
-    else:
-        embed.set_footer(text=f"{len(joueurs_actifs)} joueurs actifs")
-    
-    await ctx.send(embed=embed)
-
-
-@bot.command()
-async def positions(ctx):
-    """Affiche la répartition des joueurs par zone"""
-    if not positions:
-        await ctx.send("❌ Aucune position enregistrée.")
-        return
-    
-    # Organiser les joueurs par zone
-    zones_joueurs = {}
-    for uid, zone in positions.items():
-        if uid not in elimines and uid != 999999999999999999:  # Exclure éliminés et Mathmech
-            if zone not in zones_joueurs:
-                zones_joueurs[zone] = []
-            
-            try:
-                user = await bot.fetch_user(uid)
-                pseudo = user.display_name
-            except:
-                pseudo = f"ID {uid}"
-            
-            # Ajouter les statuts si disponibles
-            if uid in joueurs:
-                statuts = joueurs[uid].get("statuts", [])
-                badge = f" [{', '.join(statuts)}]" if statuts else ""
-                pseudo += badge
-            
-            zones_joueurs[zone].append(pseudo)
-    
-    if not zones_joueurs:
-        await ctx.send("❌ Aucun joueur actif localisé.")
-        return
-    
-    embed = discord.Embed(title="📍 Répartition des joueurs par zone", color=discord.Color.blue())
-    
-    for zone in zones:  # Utiliser l'ordre des zones définies
-        if zone in zones_joueurs:
-            joueurs_zone = zones_joueurs[zone]
-            embed.add_field(
-                name=f"🏢 {zone} ({len(joueurs_zone)} joueur{'s' if len(joueurs_zone) > 1 else ''})",
-                value="\n".join(f"• {pseudo}" for pseudo in joueurs_zone),
-                inline=True
-            )
-        else:
-            embed.add_field(
-                name=f"🏢 {zone} (0 joueur)",
-                value="*(vide)*",
-                inline=True
-            )
-    
-    total_joueurs = sum(len(joueurs_liste) for joueurs_liste in zones_joueurs.values())
-    embed.set_footer(text=f"Total: {total_joueurs} joueurs actifs répartis")
-    
-    await ctx.send(embed=embed)
 
 # --- Boutique ---
 boutique = {
@@ -1502,17 +1382,13 @@ async def acheter(ctx, *, nom: str):
         await ctx.send("❌ Tu dois être inscrit pour acheter.")
         return
 
-    # S'assurer que l'inventaire existe
-    if user.id not in inventaires:
-        inventaires[user.id] = {"or": 30, "cartes": []}
-
     # Vérifier si c'est un pack
     if nom in boutique["packs"]:
         pack = boutique["packs"][nom]
         prix = pack["prix"]
 
         if joueurs[user.id]["or"] < prix:
-            await ctx.send(f"❌ Pas assez d'or ! ({prix} requis, tu as {joueurs[user.id]['or']} or)")
+            await ctx.send(f"❌ Pas assez d'or ! ({prix} requis)")
             return
 
         joueurs[user.id]["or"] -= prix
@@ -1522,34 +1398,28 @@ async def acheter(ctx, *, nom: str):
         del boutique["packs"][nom]
 
         save_data()
-        await ctx.send(f"✅ {user.display_name} a acheté le pack **{nom}** pour {prix} or !")
+        await ctx.send(f"✅ {user.display_name} a acheté le pack **{nom}** !")
         return
 
     # Vérifier si c'est une carte dans un shop
-    carte_trouvee = False
     for shop_nom, shop in boutique["shops"].items():
         if nom in shop["cartes"]:
-            carte_trouvee = True
             prix = shop["cartes"][nom]
 
             # Réduction "Négociateur" (UNE SEULE carte, puis disparaît)
-            reduction = 30 if joueurs.get(user.id, {}).get("negociateur", False) else 0
+            reduction = 30 if joueurs.get(user.id, {}).get("negociateur") else 0
             prix_effectif = max(0, prix - reduction)
 
             if joueurs[user.id]["or"] < prix_effectif:
-                await ctx.send(f"❌ Pas assez d'or ! ({prix_effectif} requis, tu as {joueurs[user.id]['or']} or)")
+                await ctx.send(f"❌ Pas assez d'or ! ({prix_effectif} requis)")
                 return
 
             # Limite par joueur
             if "limite_par_joueur" in shop:
-                # S'assurer que achats_uniques existe pour ce joueur
-                if user.id not in achats_uniques:
-                    achats_uniques[user.id] = {}
-                    
                 if achats_uniques.get(user.id, {}).get(shop_nom, False):
                     await ctx.send(f"❌ Tu as déjà acheté une carte du shop {shop_nom}.")
                     return
-                achats_uniques[user.id][shop_nom] = True
+                achats_uniques.setdefault(user.id, {})[shop_nom] = True
 
             # Débiter le prix effectif (avec réduction éventuelle)
             joueurs[user.id]["or"] -= prix_effectif
@@ -1567,15 +1437,14 @@ async def acheter(ctx, *, nom: str):
                 del shop["cartes"][nom]
 
             save_data()
-            msg = f"✅ {user.display_name} a acheté **{nom}** dans le shop {shop_nom} pour {prix_effectif} or"
+            msg = f"✅ {user.display_name} a acheté **{nom}** dans le shop {shop_nom}"
             if reduction > 0:
                 msg += f" (réduction Négociateur appliquée : -{reduction} or)"
             msg += " !"
             await ctx.send(msg)
             return
 
-    if not carte_trouvee:
-        await ctx.send(f"❌ Aucun pack ou carte trouvé avec le nom '{nom}'.")
+    await ctx.send("❌ Aucun pack ou carte trouvé avec ce nom.")
 
 
 
@@ -1788,275 +1657,6 @@ async def minerva(ctx):
 
     await ctx.send(f"{user.mention} est désormais **Protégé par Minerva** ! (perdra 1 ⭐ de moins au prochain duel perdu)")
     save_data()
-
-@bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
-async def manger(ctx):
-    user_id = ctx.author.id
-    ok, msg = can_use_exclusive(user_id, "manger")
-    if not ok:
-        await ctx.send(msg)
-        return
-    
-    if joueurs[user_id]["or"] < 10:
-        await ctx.send("❌ Tu n'as pas assez d'or (10 or requis).")
-        return
-    
-    joueurs[user_id]["or"] -= 10
-    joueurs[user_id].setdefault("statuts", [])
-    if "Rassasié" not in joueurs[user_id]["statuts"]:
-        joueurs[user_id]["statuts"].append("Rassasié")
-    
-    lock_exclusive(user_id, "manger")
-    save_data()
-    
-    await ctx.send(f"{ctx.author.display_name} s'achète un bon plat local pour 10 or. Il est à présent rassasié. Lors du tournoi, il pourra décider d'un duel où les LP des joueurs seront de 16000 !")
-
-@bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
-async def everyone(ctx):
-    user_id = ctx.author.id
-    ok, msg = can_use_exclusive(user_id, "everyone")
-    if not ok:
-        await ctx.send(msg)
-        return
-    
-    # Ping tous les participants
-    mentions = []
-    for uid in joueurs.keys():
-        if uid not in elimines and uid != 999999999999999999:
-            mentions.append(f"<@{uid}>")
-    
-    if mentions:
-        ping_message = "🔔 " + " ".join(mentions)
-        await ctx.send(ping_message)
-    
-    # Attendre 30 secondes
-    await asyncio.sleep(30)
-    
-    # Message de suivi
-    joueurs[user_id].setdefault("statuts", [])
-    if "Bonus mini-jeu" not in joueurs[user_id]["statuts"]:
-        joueurs[user_id]["statuts"].append("Bonus mini-jeu")
-    
-    await ctx.send("Les participants te détestent à présent, mais l'organisateur a trouvé ça drôle. Vous gagnez 20 or supplémentaire au prochain mini-jeu organisé par Atem.")
-    
-    lock_exclusive(user_id, "everyone")
-    save_data()
-
-@bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
-async def ban(ctx, membre: discord.Member):
-    user_id = ctx.author.id
-    ok, msg = can_use_exclusive(user_id, "ban")
-    if not ok:
-        await ctx.send(msg)
-        return
-    
-    if not est_inscrit(membre.id):
-        await ctx.send("❌ Ce joueur n'est pas inscrit.")
-        return
-    
-    await ctx.send("Commande introuvable. Voulez-vous dire : *!voler @membre* ? Très bien :")
-    
-    # Vérifier si le membre a des statuts
-    statuts_cible = joueurs[membre.id].get("statuts", [])
-    if statuts_cible:
-        # Voler un statut aléatoire
-        import random
-        statut_vole = random.choice(statuts_cible)
-        statuts_cible.remove(statut_vole)
-        
-        # L'ajouter au voleur
-        joueurs[user_id].setdefault("statuts", [])
-        if statut_vole not in joueurs[user_id]["statuts"]:
-            joueurs[user_id]["statuts"].append(statut_vole)
-        
-        await ctx.send(f"Vous volez le statut **{statut_vole}** de {membre.display_name} !")
-    else:
-        # Voler 20 or
-        or_vole = min(20, joueurs[membre.id]["or"])
-        joueurs[membre.id]["or"] -= or_vole
-        joueurs[user_id]["or"] += or_vole
-        
-        await ctx.send(f"Vous volez **{or_vole} or** à {membre.display_name} !")
-    
-    lock_exclusive(user_id, "ban")
-    save_data()
-
-@bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
-async def lightsworn(ctx):
-    user_id = ctx.author.id
-    ok, msg = can_use_exclusive(user_id, "lightsworn")
-    if not ok:
-        await ctx.send(msg)
-        return
-    
-    joueurs[user_id].setdefault("statuts", [])
-    if "Ignore banlist" not in joueurs[user_id]["statuts"]:
-        joueurs[user_id]["statuts"].append("Ignore banlist")
-    
-    lock_exclusive(user_id, "lightsworn")
-    save_data()
-    
-    await ctx.send("Pour UN bo3 seulement, vous pouvez ignorer la banlist du tournoi. Néanmoins, vous ne pouvez miser qu'une étoile lors de ce bo3 !")
-
-
-@bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
-async def etyop(ctx):
-    user_id = ctx.author.id
-    ok, msg = can_use_exclusive(user_id, "etyop")
-    if not ok:
-        await ctx.send(msg)
-        return
-    
-    # Permettre une deuxième commande exclusive
-    if str(user_id) in commandes_uniques_globales.get("exclusives_joueurs", {}):
-        del commandes_uniques_globales["exclusives_joueurs"][str(user_id)]
-    
-    lock_exclusive(user_id, "etyop")
-    save_data()
-    
-    await ctx.send("Désolé mec, la première commande était pas ouf, heureusement j'ai fait cette deuxième commande haha. Tu gagnes le droit d'utiliser une deuxième commande spéciale, n'importe laquelle !")
-
-
-@bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
-async def ahi(ctx):
-    user_id = ctx.author.id
-    ok, msg = can_use_exclusive(user_id, "ahi")
-    if not ok:
-        await ctx.send(msg)
-        return
-    
-    # Écrire :ahi: dans le salon
-    await ctx.send(":ahi:")
-    
-    # Envoyer le MP
-    try:
-        await ctx.author.send("MP Atem avec le nom d'un joueur auquel tu veux subtilement voler une étoile (Atem fera la commande sur un serveur privé, le joueur en question ne sera pas ping)")
-    except:
-        await ctx.send("❌ Impossible de t'envoyer un MP. Contacte Atem directement.")
-    
-    lock_exclusive(user_id, "ahi")
-    save_data()
-
-
-@bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
-async def pack(ctx):
-    user_id = ctx.author.id
-    ok, msg = can_use_exclusive(user_id, "pack")
-    if not ok:
-        await ctx.send(msg)
-        return
-    
-    joueurs[user_id].setdefault("statuts", [])
-    if "Pack Master Duel" not in joueurs[user_id]["statuts"]:
-        joueurs[user_id]["statuts"].append("Pack Master Duel")
-    
-    lock_exclusive(user_id, "pack")
-    save_data()
-    
-    await ctx.send("Ouvrez un pack de votre choix sur Master Duel. Vous gagnez les récompenses suivantes selon ce que vous avez obtenu : 30 or par UR, 20 or par SR, 10 or par R, 5 or par N, 1 étoile par royale !")
-
-
-@bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
-async def napo(ctx):
-    user_id = ctx.author.id
-    ok, msg = can_use_exclusive(user_id, "napo")
-    if not ok:
-        await ctx.send(msg)
-        return
-    
-    joueurs[user_id].setdefault("statuts", [])
-    if "Axe Raider" not in joueurs[user_id]["statuts"]:
-        joueurs[user_id]["statuts"].append("Axe Raider")
-    
-    lock_exclusive(user_id, "napo")
-    save_data()
-    
-    await ctx.send("Pour le reste du tournoi, vous avez la possibilité de rajouter 1 \"Axe Raider\" à votre deck. Si vous remportez un duel en l'ayant invoqué, vous gagnez 100 or !")
-
-
-@bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
-async def potofgreed(ctx):
-    user_id = ctx.author.id
-    ok, msg = can_use_exclusive(user_id, "potofgreed")
-    if not ok:
-        await ctx.send(msg)
-        return
-    
-    # Donner 20 or à tous les joueurs actifs
-    joueurs_beneficiaires = []
-    for uid in joueurs.keys():
-        if uid not in elimines and uid != 999999999999999999:
-            joueurs[uid]["or"] += 20
-            try:
-                user = await bot.fetch_user(uid)
-                joueurs_beneficiaires.append(user.display_name)
-            except:
-                joueurs_beneficiaires.append(f"ID {uid}")
-    
-    lock_exclusive(user_id, "potofgreed")
-    save_data()
-    
-    await ctx.send(f"Tous les joueurs piochent 2 cartes ! (chaque joueur gagne 20 or)\n**Bénéficiaires:** {', '.join(joueurs_beneficiaires)}")
-
-
-@bot.command()
-@require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)  
-async def potofextravagance(ctx):
-    user_id = ctx.author.id
-    ok, msg = can_use_exclusive(user_id, "potofextravagance")
-    if not ok:
-        await ctx.send(msg)
-        return
-    
-    # Trouver le joueur avec le moins d'or
-    min_or = float('inf')
-    joueur_min_or = None
-    for uid, stats in joueurs.items():
-        if uid not in elimines and uid != 999999999999999999:
-            if stats["or"] < min_or:
-                min_or = stats["or"]
-                joueur_min_or = uid
-    
-    # Trouver le joueur avec le moins d'étoiles
-    min_etoiles = float('inf')
-    joueur_min_etoiles = None
-    for uid, stats in joueurs.items():
-        if uid not in elimines and uid != 999999999999999999:
-            if stats["etoiles"] < min_etoiles:
-                min_etoiles = stats["etoiles"]
-                joueur_min_etoiles = uid
-    
-    beneficiaires = []
-    
-    if joueur_min_or:
-        joueurs[joueur_min_or]["or"] += 30
-        try:
-            user = await bot.fetch_user(joueur_min_or)
-            beneficiaires.append(f"{user.display_name} (+30 or)")
-        except:
-            beneficiaires.append(f"ID {joueur_min_or} (+30 or)")
-    
-    if joueur_min_etoiles:
-        joueurs[joueur_min_etoiles]["etoiles"] += 2
-        try:
-            user = await bot.fetch_user(joueur_min_etoiles)
-            beneficiaires.append(f"{user.display_name} (+2 étoiles)")
-        except:
-            beneficiaires.append(f"ID {joueur_min_etoiles} (+2 étoiles)")
-    
-    lock_exclusive(user_id, "potofextravagance")
-    save_data()
-    
-    await ctx.send(f"Il faut aider les plus démunis.\n**Bénéficiaires:** {', '.join(beneficiaires)}")
 
 
 @bot.command()
@@ -3019,17 +2619,16 @@ async def nettoyer_elimines(ctx):
 
 @bot.command()
 async def joueurs_liste(ctx):
-    """Version améliorée de la liste des joueurs en embed"""
+    """Version corrigée de la liste des joueurs qui filtre les éliminés"""
     if not joueurs:
-        embed = discord.Embed(title="📜 Liste des joueurs inscrits", color=discord.Color.red())
-        embed.description = "❌ Aucun joueur inscrit."
-        await ctx.send(embed=embed)
+        await ctx.send("❌ Aucun joueur inscrit.")
         return
 
-    joueurs_actifs = []
+    msg = "📜 **Liste des joueurs inscrits :**\n"
     for uid, stats in joueurs.items():
-        if uid in elimines or uid == 999999999999999999:
-            continue
+        # Vérifier explicitement que le joueur n'est pas éliminé
+        if uid in elimines:
+            continue  # Ignorer les joueurs éliminés
             
         try:
             user = await bot.fetch_user(uid)
@@ -3039,31 +2638,13 @@ async def joueurs_liste(ctx):
             
         zone = positions.get(uid, "❓ Inconnue")
         statuts = stats.get("statuts", [])
-        badge = f" [{', '.join(statuts)}]" if statuts else ""
-        
-        joueurs_actifs.append((pseudo, badge, stats['etoiles'], stats['or'], zone))
-    
-    if not joueurs_actifs:
-        embed = discord.Embed(title="📜 Liste des joueurs inscrits", color=discord.Color.orange())
-        embed.description = "❌ Aucun joueur actif (tous éliminés)."
-        await ctx.send(embed=embed)
-        return
-    
-    embed = discord.Embed(title="📜 Liste des joueurs inscrits", color=discord.Color.green())
-    embed.description = f"{len(joueurs_actifs)} joueur{'s' if len(joueurs_actifs) > 1 else ''} actif{'s' if len(joueurs_actifs) > 1 else ''}"
-    
-    for pseudo, badge, etoiles, or_amount, zone in joueurs_actifs[:20]:  # Limite pour éviter les messages trop longs
-        embed.add_field(
-            name=f"{pseudo}{badge}",
-            value=f"⭐ {etoiles} | 💰 {or_amount} | 📍 {zone}",
-            inline=True
-        )
-    
-    if len(joueurs_actifs) > 20:
-        embed.set_footer(text=f"Affichage de 20 joueurs sur {len(joueurs_actifs)}")
-    
-    await ctx.send(embed=embed)
+        badge = f" [{' ,'.join(statuts)}]" if statuts else ""
+        msg += f"- {pseudo}{badge} → ⭐{stats['etoiles']} | 💰{stats['or']} | 📍 {zone}\n"
 
+    if len([uid for uid in joueurs.keys() if uid not in elimines]) == 0:
+        await ctx.send("❌ Aucun joueur actif (tous éliminés).")
+    else:
+        await ctx.send(msg)
 
 
 # --- TOURNOI TYRANO ---
