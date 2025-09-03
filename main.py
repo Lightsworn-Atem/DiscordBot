@@ -151,7 +151,7 @@ PHASE_TOURNOI = 2
 PHASE_QUALIFIES = 3
 
 # Variable pour tracker la phase actuelle
-phase_actuelle = PHASE_INSCRIPTION
+phase_actuelle = PHASE_TOURNOI
 
 SEUIL_QUALIFICATION = 10
 
@@ -1417,7 +1417,7 @@ async def boutique_cmd(ctx, *, nom: str = None):
 
 @bot.command()
 @require_phase(PHASE_TOURNOI, PHASE_QUALIFIES)
-async def acheter(ctx, *, nom: str):
+async def acheter(ctx, *, nom):
     """Permet d'acheter un pack complet ou une carte d'un shop - VERSION CORRIGÉE"""
     user = ctx.author
     if not est_inscrit(user.id):
@@ -1519,7 +1519,6 @@ async def acheter(ctx, *, nom: str):
         return
 
     await ctx.send(f"❌ Aucun pack ou carte trouvé avec le nom '{nom}'. Utilise `!boutique_cmd` pour voir les articles disponibles.")
-
 
 @bot.command()
 @is_owner()
