@@ -1917,6 +1917,230 @@ async def potofextravagance(ctx):
 
 
 @bot.command()
+async def elite(ctx):
+    """Commande réservée au rôle Bleu Obelisk pour voler de l'or"""
+    user_id = ctx.author.id
+    
+    # Vérifier si l'utilisateur a le rôle "Bleu Obelisk"
+    has_obelisk_role = any(role.name == "Bleu Obélisk" for role in ctx.author.roles)
+    
+    if not has_obelisk_role:
+        await ctx.send("❌ Tu dois avoir le rôle **Bleu Obélisk** pour utiliser cette commande.")
+        return
+    
+    if not est_inscrit(user_id):
+        await ctx.send("❌ Tu dois être inscrit pour utiliser cette commande.")
+        return
+    
+    # Trouver les participants sans le rôle "Bleu Obelisk"
+    participants_eligibles = []
+    for uid in joueurs.keys():
+        if uid not in elimines and uid != 999999999999999999 and uid != user_id:
+            try:
+                member = ctx.guild.get_member(uid)
+                if member and not any(role.name == "Bleu Obélisk" for role in member.roles):
+                    if joueurs[uid]["or"] >= 10:  # Vérifier qu'il a au moins 10 or
+                        participants_eligibles.append((uid, member))
+            except:
+                continue
+    
+    if not participants_eligibles:
+        await ctx.send("❌ Aucun participant éligible trouvé (sans rôle Bleu Obelisk et avec au moins 10 or).")
+        return
+    
+    # Choisir une victime au hasard
+    import random
+    victime_id, victime_member = random.choice(participants_eligibles)
+    
+    # Transférer l'or
+    joueurs[victime_id]["or"] -= 10
+    joueurs[user_id]["or"] += 10
+    
+    save_data()
+    
+    await ctx.send(f"{ctx.author.display_name} fait partie de l'élite, et vole 10 or à {victime_member.display_name} (la plèbe) !")
+
+
+@bot.command()
+async def tcg(ctx):
+    """Défier Atem en TCG sur Duelingbook"""
+    user_id = ctx.author.id
+    
+    if not est_inscrit(user_id):
+        await ctx.send("❌ Tu dois être inscrit pour utiliser cette commande.")
+        return
+    
+    # Ajouter un statut pour indiquer le défi en cours
+    joueurs[user_id].setdefault("statuts", [])
+    if "Défi TCG en cours" not in joueurs[user_id]["statuts"]:
+        joueurs[user_id]["statuts"].append("Défi TCG en cours")
+    
+    save_data()
+    
+    await ctx.send(f"⚔️ **Défi TCG lancé !** {ctx.author.display_name} défie Atem sur Duelingbook au format TCG actuel !\n"
+                   f"🏆 **Victoire BO3** : +1 étoile\n"
+                   f"💰 **Défaite mais 1 game gagnée** : +40 or\n"
+                   f"📞 Contacte <@536681221481037824> pour organiser le duel !")
+
+
+@bot.command()
+async def gngngn(ctx):
+    """Obtenir une compensation pour mauvais matchup"""
+    user_id = ctx.author.id
+    
+    if not est_inscrit(user_id):
+        await ctx.send("❌ Tu dois être inscrit pour utiliser cette commande.")
+        return
+    
+    # Ajouter le statut de plainte autorisée
+    joueurs[user_id].setdefault("statuts", [])
+    if "Droit de plainte" not in joueurs[user_id]["statuts"]:
+        joueurs[user_id]["statuts"].append("Droit de plainte")
+    
+    save_data()
+    
+    await ctx.send(f"Lors de ton prochain BO3 perdu, tu pourras te plaindre du mauvais matchup et recevoir 10 or de compensation !")
+
+
+@bot.command()
+async def speeder(ctx):
+    """Obtenir la liberté de déplacement pendant 24h"""
+    user_id = ctx.author.id
+    
+    if not est_inscrit(user_id):
+        await ctx.send("❌ Tu dois être inscrit pour utiliser cette commande.")
+        return
+    
+    # Ajouter le statut de rapidité
+    joueurs[user_id].setdefault("statuts", [])
+    if "RAPIDE" not in joueurs[user_id]["statuts"]:
+        joueurs[user_id]["statuts"].append("RAPIDE")
+    
+    # Réinitialiser le flag de déplacement pour permettre le mouvement libre
+    derniers_deplacements[str(user_id)] = False
+    
+    save_data()
+    
+    await ctx.send(f"{ctx.author.display_name} peut maintenant se déplacer librement dans toutes les zones pendant 24h.\n"
+                   f"⚠️ L'organisateur retirera manuellement ce statut après 24h.")
+
+
+@bot.command()
+async def jvc(ctx):
+    """Obtenir un achat gratuit du shop JVC"""
+    user_id = ctx.author.id
+    
+    if not est_inscrit(user_id):
+        await ctx.send("❌ Tu dois être inscrit pour utiliser cette commande.")
+        return
+    
+    # Ajouter le statut d'achat JVC gratuit
+    joueurs[user_id].setdefault("statuts", [])
+    if "Achat JVC gratuit" not in joueurs[user_id]["statuts"]:
+        joueurs[user_id]["statuts"].append("Achat JVC gratuit")
+    
+    save_data()
+    
+    await ctx.send(f"🏆 **Privilège JVC !** {ctx.author.display_name} peut acheter gratuitement une carte du shop JVC lors de son prochain achat !")
+
+
+@bot.command()
+async def changeofheart(ctx, membre: discord.Member = None):
+    """Voler un statut d'un joueur ou en gagner un au hasard"""
+    user_id = ctx.author.id
+    
+    if not est_inscrit(user_id):
+        await ctx.send("❌ Tu dois être inscrit pour utiliser cette commande.")
+        return
+    
+    if not membre:
+        await ctx.send("❌ Tu dois mentionner un joueur ! Usage : `!changeofheart @joueur`")
+        return
+    
+    if not est_inscrit(membre.id) or membre.id in elimines:
+        await ctx.send("❌ Le joueur ciblé doit être inscrit et non éliminé.")
+        return
+    
+    if membre.id == user_id:
+        await ctx.send("❌ Tu ne peux pas te cibler toi-même.")
+        return
+    
+    import random
+    
+    # Vérifier si la cible a des statuts
+    statuts_cible = joueurs[membre.id].get("statuts", [])
+    
+    if statuts_cible:
+        # Voler un statut au hasard
+        statut_vole = random.choice(statuts_cible)
+        statuts_cible.remove(statut_vole)
+        
+        # Ajouter le statut au voleur
+        joueurs[user_id].setdefault("statuts", [])
+        if statut_vole not in joueurs[user_id]["statuts"]:
+            joueurs[user_id]["statuts"].append(statut_vole)
+        
+        await ctx.send(f"**Change of Heart !** {ctx.author.display_name} vole le statut **{statut_vole}** de {membre.display_name} !")
+    else:
+        # Donner un statut au hasard au lanceur
+        statuts_possibles = ["Protégé par Atem", "Protégé par Minerva", "Omniprésent", "Lightsworn", "Rassasié"]
+        statut_gagne = random.choice(statuts_possibles)
+        
+        joueurs[user_id].setdefault("statuts", [])
+        if statut_gagne not in joueurs[user_id]["statuts"]:
+            joueurs[user_id]["statuts"].append(statut_gagne)
+        
+        await ctx.send(f"{membre.display_name} n'a aucun statut à voler ! {ctx.author.display_name} reçoit le statut **{statut_gagne}** à la place !")
+    
+    save_data()
+
+
+@bot.command()
+async def forcefulsentinel(ctx, membre: discord.Member = None):
+    """Retirer une carte de l'inventaire d'un joueur contre rançon"""
+    user_id = ctx.author.id
+    
+    if not est_inscrit(user_id):
+        await ctx.send("❌ Tu dois être inscrit pour utiliser cette commande.")
+        return
+    
+    if not membre:
+        await ctx.send("❌ Tu dois mentionner un joueur ! Usage : `!forcefulsentinel @joueur`")
+        return
+    
+    if not est_inscrit(membre.id) or membre.id in elimines:
+        await ctx.send("❌ Le joueur ciblé doit être inscrit et non éliminé.")
+        return
+    
+    if membre.id == user_id:
+        await ctx.send("❌ Tu ne peux pas te cibler toi-même.")
+        return
+    
+    # Vérifier l'inventaire de la cible
+    cartes_cible = inventaires.get(membre.id, {}).get("cartes", [])
+    
+    if not cartes_cible:
+        await ctx.send(f"❌ {membre.display_name} n'a aucune carte dans son inventaire.")
+        return
+    
+    import random
+    carte_volee = random.choice(cartes_cible)
+    
+    # Retirer la carte de l'inventaire de la cible
+    cartes_cible.remove(carte_volee)
+    
+    save_data()
+    
+    await ctx.send(f"🛡️ **Forceful Sentinel !** {ctx.author.display_name} confisque **{carte_volee}** de l'inventaire de {membre.display_name} !\n"
+                   f"💰 {membre.display_name} peut récupérer sa carte en te donnant la moitié du prix d'origine en or.\n"
+                   f"⚠️ **Admin** : Utilise `!admin_inventaire {membre.mention} +{carte_volee}` pour rendre la carte après paiement.")
+
+
+
+
+
+
+@bot.command()
 async def atem(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "atem")
@@ -1938,7 +2162,6 @@ async def atem(ctx):
 
 
 @bot.command()
-
 async def skream(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "skream")
@@ -1960,7 +2183,6 @@ async def skream(ctx):
 
 
 @bot.command()
-
 async def tyrano(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "tyrano")
@@ -1981,7 +2203,6 @@ async def tyrano(ctx):
     await ctx.send(f"{ctx.author.display_name} active une météore ! À la fin de chaque BO3, tu gagnes 3 or par monstre détruit par un effet. Si 30 monstres sont détruits en 1 BO3, tu gagnes 1 étoile !")
 
 @bot.command()
-
 async def retro(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "retro")
@@ -2580,6 +2801,33 @@ async def admin_forcer_duel(ctx, gagnant: discord.Member, perdant: discord.Membe
     
     save_data()
 
+@bot.command()
+@is_owner()
+async def admin_inventaire(ctx, membre: discord.Member, action: str, *, carte_nom: str):
+    """Commande admin pour ajouter/retirer des cartes d'inventaire"""
+    if action not in ["+", "-"]:
+        await ctx.send("❌ Action invalide. Utilise + pour ajouter ou - pour retirer.")
+        return
+    
+    if not est_inscrit(membre.id):
+        await ctx.send("❌ Le joueur doit être inscrit.")
+        return
+    
+    if membre.id not in inventaires:
+        inventaires[membre.id] = {"or": joueurs[membre.id]["or"], "cartes": []}
+    
+    if action == "+":
+        inventaires[membre.id]["cartes"].append(carte_nom)
+        await ctx.send(f"✅ **{carte_nom}** ajoutée à l'inventaire de {membre.display_name}")
+    elif action == "-":
+        if carte_nom in inventaires[membre.id]["cartes"]:
+            inventaires[membre.id]["cartes"].remove(carte_nom)
+            await ctx.send(f"✅ **{carte_nom}** retirée de l'inventaire de {membre.display_name}")
+        else:
+            await ctx.send(f"❌ {membre.display_name} n'a pas **{carte_nom}** dans son inventaire.")
+    
+    save_data()
+    
 @bot.command()
 @is_owner()
 async def admin_mirvu_stop(ctx):
