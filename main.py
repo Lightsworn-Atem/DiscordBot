@@ -2083,7 +2083,7 @@ async def changeofheart(ctx, membre: discord.Member = None):
         await ctx.send(f"**Change of Heart !** {ctx.author.display_name} vole le statut **{statut_vole}** de {membre.display_name} !")
     else:
         # Donner un statut au hasard au lanceur
-        statuts_possibles = ["Protégé par Atem", "Protégé par Minerva", "Omniprésent", "Lightsworn", "Rassasié"]
+        statuts_possibles = ["Protégé par Atem", "Protégé par Minerva", "Omniprésent", "Lightsworn", "Prohibition"]
         statut_gagne = random.choice(statuts_possibles)
         
         joueurs[user_id].setdefault("statuts", [])
@@ -2827,7 +2827,7 @@ async def admin_inventaire(ctx, membre: discord.Member, action: str, *, carte_no
             await ctx.send(f"❌ {membre.display_name} n'a pas **{carte_nom}** dans son inventaire.")
     
     save_data()
-    
+
 @bot.command()
 @is_owner()
 async def admin_mirvu_stop(ctx):
