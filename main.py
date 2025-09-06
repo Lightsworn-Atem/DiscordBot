@@ -2433,44 +2433,6 @@ async def deban(ctx, *, carte_nom: str = None):
     await ctx.send(f"🚫➡️✅ **DÉBAN !** {ctx.author.display_name} peut maintenant jouer **{carte_trouvee}** x3 dans ses decks !")
 
 
-@bot.command()
-async def lien(ctx):
-    """Créer un lien avec deux joueurs aléatoires"""
-    user_id = ctx.author.id
-    
-    if not est_inscrit(user_id):
-        await ctx.send("❌ Tu dois être inscrit pour utiliser cette commande.")
-        return
-    
-    # Trouver les joueurs actifs (excluant l'utilisateur)
-    joueurs_actifs = [uid for uid in joueurs.keys() 
-                      if uid != user_id and uid not in elimines and uid != 999999999999999999]
-    
-    if len(joueurs_actifs) < 2:
-        await ctx.send("❌ Il faut au moins 2 autres joueurs actifs pour créer un lien.")
-        return
-    
-    import random
-    joueurs_lies = random.sample(joueurs_actifs, 2)
-    
-    try:
-        joueur1 = await bot.fetch_user(joueurs_lies[0])
-        joueur2 = await bot.fetch_user(joueurs_lies[1])
-        
-        # Ajouter le statut de lien
-        joueurs[user_id].setdefault("statuts", [])
-        statut_lien = f"Lié: +{joueur1.display_name} -{joueur2.display_name}"
-        if statut_lien not in joueurs[user_id]["statuts"]:
-            joueurs[user_id]["statuts"].append(statut_lien)
-        
-        save_data()
-        
-        await ctx.send(f"🔗 **LIEN MYSTIQUE !** {ctx.author.display_name} est maintenant lié !\n"
-                       f"📈 **Gains** : Quand {joueur1.display_name} gagne des étoiles, tu gagnes autant\n"
-                       f"📉 **Pertes** : Quand {joueur2.display_name} perd des étoiles, tu en perds autant")
-    except:
-        await ctx.send("❌ Erreur lors de la création du lien. Réessaye.")
-
 
 @bot.command()
 async def contrat(ctx):
