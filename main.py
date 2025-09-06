@@ -2266,7 +2266,235 @@ async def yop(ctx):
 
 
 @bot.command()
+async def ange(ctx):
+    """Mission divine avec 7 péchés capitaux"""
+    user_id = ctx.author.id
+    
+    if not est_inscrit(user_id):
+        await ctx.send("❌ Tu dois être inscrit pour utiliser cette commande.")
+        return
+    
+    # Ajouter le statut de mission divine
+    joueurs[user_id].setdefault("statuts", [])
+    if "Mission Divine" not in joueurs[user_id]["statuts"]:
+        joueurs[user_id]["statuts"].append("Mission Divine")
+    
+    save_data()
+    
+    # Message public
+    await ctx.send("👼 **Vous êtes chargés d'une mission**")
+    
+    # Message privé avec les missions
+    try:
+        mp_message = """🕊️ **Les 7 Divines Missions** 📜
 
+**1) La paresse** : Mettez 5 monstres sur le terrain en position de défense lors d'un duel
+
+**2) L'orgueil** : Gagnez un duel sans prendre aucun dégât
+
+**3) La luxure** : Gagnez un duel avec un deck contenant au moins 30 UR.
+
+**4) La gourmandise** : Devenez le joueur possédant le plus d'or OU le joueur ayant le plus de cartes dans son inventaire
+
+**5) L'avarice** : N'achetez aucun objet de la boutique coûtant + de 70 or. (Automatiquement validé si vous avez utilisé la commande !fayth)
+
+**6) La colère** : Perdez un duel contre un joueur ayant moins d'étoiles que vous
+
+**7) L'envie** : Gagnez un bo3 contre un joueur ayant plus d'étoiles que vous
+
+✨ **Récompense** : Lorsque toutes ces missions seront accomplies, vous serez automatiquement qualifié pour le top 4"""
+        
+        await ctx.author.send(mp_message)
+    except:
+        await ctx.send("❌ Impossible de t'envoyer un MP. Active tes MPs ou contacte l'organisateur.")
+
+
+@bot.command()
+async def floodgate(ctx):
+    """Devenir infecté avec règles spéciales"""
+    user_id = ctx.author.id
+    
+    if not est_inscrit(user_id):
+        await ctx.send("❌ Tu dois être inscrit pour utiliser cette commande.")
+        return
+    
+    # Ajouter le statut infecté
+    joueurs[user_id].setdefault("statuts", [])
+    if "Infecté" not in joueurs[user_id]["statuts"]:
+        joueurs[user_id]["statuts"].append("Infecté")
+    
+    save_data()
+    
+    await ctx.send(f"🦠 **INFECTION !** {ctx.author.display_name} est maintenant **infecté** !\n"
+                   f"❌ **Restrictions** : Ne peut plus gagner d'or, acheter en boutique, ni utiliser son inventaire\n"
+                   f"🔄 **Transmission** : Si tu gagnes un BO3, tu transmets l'infection à ton adversaire\n"
+                   f"⚔️ **Obligation** : Tous les joueurs DOIVENT accepter tes demandes de BO3 !")
+
+
+@bot.command()
+async def boss(ctx):
+    """Devenir un boss avec tous les avantages et risques"""
+    user_id = ctx.author.id
+    
+    if not est_inscrit(user_id):
+        await ctx.send("❌ Tu dois être inscrit pour utiliser cette commande.")
+        return
+    
+    # Collecter tous les statuts existants dans le tournoi
+    tous_statuts = set()
+    for uid, stats in joueurs.items():
+        if uid != user_id and uid not in elimines:
+            tous_statuts.update(stats.get("statuts", []))
+    
+    # Ajouter tous les statuts au boss
+    joueurs[user_id].setdefault("statuts", [])
+    for statut in tous_statuts:
+        if statut not in joueurs[user_id]["statuts"]:
+            joueurs[user_id]["statuts"].append(statut)
+    
+    # Ajouter le statut Boss
+    if "BOSS" not in joueurs[user_id]["statuts"]:
+        joueurs[user_id]["statuts"].append("BOSS")
+    
+    # Donner toutes les cartes de la boutique
+    if user_id not in inventaires:
+        inventaires[user_id] = {"or": joueurs[user_id]["or"], "cartes": []}
+    
+    toutes_cartes = []
+    # Cartes des packs
+    for pack_data in boutique.get("packs", {}).values():
+        toutes_cartes.extend(pack_data.get("cartes", []))
+    # Cartes des shops
+    for shop_data in boutique.get("shops", {}).values():
+        toutes_cartes.extend(shop_data.get("cartes", {}).keys())
+    
+    inventaires[user_id]["cartes"].extend(toutes_cartes)
+    
+    save_data()
+    
+    await ctx.send(f"👹 **BOSS FINAL !** {ctx.author.display_name} devient un BOSS !\n"
+                   f"🎁 **Gains** : Tous les statuts du tournoi + toutes les cartes de la boutique\n"
+                   f"⚠️ **Risque** : À ta prochaine défaite, tu perds TOUT et ton adversaire gagne 2 statuts + 300 or !")
+
+
+@bot.command()
+async def question(ctx):
+    """Quiz sur les archétypes Yu-Gi-Oh"""
+    user_id = ctx.author.id
+    
+    if not est_inscrit(user_id):
+        await ctx.send("❌ Tu dois être inscrit pour utiliser cette commande.")
+        return
+    
+    await ctx.send(f"🧠 **QUIZ ARCHÉTYPES !** {ctx.author.display_name} a 1 minute pour citer autant d'archétypes que possible !\n"
+                   f"💰 **Récompense** : 5 or par archétype cité\n"
+                   f"⭐ **Bonus** : 1 étoile si au moins 30 archétypes cités\n"
+                   f"⏱️ **TOP CHRONO !** L'organisateur compte manuellement.")
+
+
+@bot.command()
+async def deban(ctx, *, carte_nom: str = None):
+    """Débanner une carte de son inventaire"""
+    user_id = ctx.author.id
+    
+    if not est_inscrit(user_id):
+        await ctx.send("❌ Tu dois être inscrit pour utiliser cette commande.")
+        return
+    
+    if not carte_nom:
+        await ctx.send("❌ Tu dois spécifier le nom d'une carte ! Usage : `!deban Nom de la carte`")
+        return
+    
+    cartes_inventaire = inventaires.get(user_id, {}).get("cartes", [])
+    
+    if not cartes_inventaire:
+        await ctx.send("❌ Ton inventaire est vide.")
+        return
+    
+    # Recherche insensible à la casse
+    carte_trouvee = None
+    for carte in cartes_inventaire:
+        if carte.lower() == carte_nom.lower():
+            carte_trouvee = carte
+            break
+    
+    if not carte_trouvee:
+        await ctx.send(f"❌ Tu n'as pas **{carte_nom}** dans ton inventaire.")
+        return
+    
+    # Ajouter le statut de déban
+    joueurs[user_id].setdefault("statuts", [])
+    statut_deban = f"Déban: {carte_trouvee}"
+    if statut_deban not in joueurs[user_id]["statuts"]:
+        joueurs[user_id]["statuts"].append(statut_deban)
+    
+    save_data()
+    
+    await ctx.send(f"🚫➡️✅ **DÉBAN !** {ctx.author.display_name} peut maintenant jouer **{carte_trouvee}** x3 dans ses decks !")
+
+
+@bot.command()
+async def lien(ctx):
+    """Créer un lien avec deux joueurs aléatoires"""
+    user_id = ctx.author.id
+    
+    if not est_inscrit(user_id):
+        await ctx.send("❌ Tu dois être inscrit pour utiliser cette commande.")
+        return
+    
+    # Trouver les joueurs actifs (excluant l'utilisateur)
+    joueurs_actifs = [uid for uid in joueurs.keys() 
+                      if uid != user_id and uid not in elimines and uid != 999999999999999999]
+    
+    if len(joueurs_actifs) < 2:
+        await ctx.send("❌ Il faut au moins 2 autres joueurs actifs pour créer un lien.")
+        return
+    
+    import random
+    joueurs_lies = random.sample(joueurs_actifs, 2)
+    
+    try:
+        joueur1 = await bot.fetch_user(joueurs_lies[0])
+        joueur2 = await bot.fetch_user(joueurs_lies[1])
+        
+        # Ajouter le statut de lien
+        joueurs[user_id].setdefault("statuts", [])
+        statut_lien = f"Lié: +{joueur1.display_name} -{joueur2.display_name}"
+        if statut_lien not in joueurs[user_id]["statuts"]:
+            joueurs[user_id]["statuts"].append(statut_lien)
+        
+        save_data()
+        
+        await ctx.send(f"🔗 **LIEN MYSTIQUE !** {ctx.author.display_name} est maintenant lié !\n"
+                       f"📈 **Gains** : Quand {joueur1.display_name} gagne des étoiles, tu gagnes autant\n"
+                       f"📉 **Pertes** : Quand {joueur2.display_name} perd des étoiles, tu en perds autant")
+    except:
+        await ctx.send("❌ Erreur lors de la création du lien. Réessaye.")
+
+
+@bot.command()
+async def contrat(ctx):
+    """Signer un contrat diabolique"""
+    user_id = ctx.author.id
+    
+    if not est_inscrit(user_id):
+        await ctx.send("❌ Tu dois être inscrit pour utiliser cette commande.")
+        return
+    
+    # Ajouter le statut de contrat
+    joueurs[user_id].setdefault("statuts", [])
+    if "Contrat Diabolique" not in joueurs[user_id]["statuts"]:
+        joueurs[user_id]["statuts"].append("Contrat Diabolique")
+    
+    save_data()
+    
+    await ctx.send(f"📜 **CONTRAT DIABOLIQUE !** {ctx.author.display_name} signe un pacte avec le diable !\n"
+                   f"🎁 **Avantage** : Chaque jour, tu gagnes un statut aléatoire\n"
+                   f"💸 **Prix** : Chaque jour, tu perds 50 or\n"
+                   f"⚠️ **Annulation** : L'effet s'arrête si tu n'as plus assez d'or")
+    
+
+@bot.command()
 async def fsz(ctx):
     user_id = ctx.author.id
     ok, msg = can_use_exclusive(user_id, "fsz")
